@@ -39,6 +39,14 @@ void main()
     // Note: You can also send raw data using queue.sendData("string") or queue.sendData(ubyte[])
     string id = queue.sendFile("./document.txt");
     writeln("Sent file job: ", id);
+
+    // You can check the status of the job
+    if (queue.isQueued(id)) writeln("Job is queued");
+    if (queue.isProcessing(id)) writeln("Job is being processed");
+    // Note: isSuccess and isFailed are only available if KeepPolicy includes SUCCESS/FAILED (default is ALL)
+    if (queue.isSuccess(id)) writeln("Job completed successfully");
+    if (queue.isFailed(id)) writeln("Job failed");
+    if (queue.isInterrupted(id)) writeln("Job was interrupted");
 }
 ```
 
