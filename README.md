@@ -43,7 +43,8 @@ void main()
     // You can check the status of the job
     if (queue.isQueued(id)) writeln("Job is queued");
     if (queue.isProcessing(id)) writeln("Job is being processed");
-    // Note: isSuccess and isFailed are only available if KeepPolicy includes SUCCESS/FAILED (default is ALL)
+
+    // Note: These status checks require the corresponding KeepPolicy flags (enabled by default in KeepPolicy.ALL).
     if (queue.isSuccess(id)) writeln("Job completed successfully");
     if (queue.isFailed(id)) writeln("Job failed");
     if (queue.isInterrupted(id)) writeln("Job was interrupted");
@@ -68,13 +69,15 @@ void main()
     // Define what happens when a file is received
     queue.onFileReceived = (string id, string originalName, string filePath) {
 
-        writefln("Processing file job %s (Original name: %s)", id, originalName);
-        writefln("File is located at: %s", filePath);
+        writeln("Processing file: ", originalName);
+        writeln("File path: ", filePath);
+        writeln("Job ID: ", id);
 
         // ... process the file content here ...
 
-        // Return SUCCESS to move file to 'success' folder,
-        // FAILED to move to 'failed', or RETRY to queue it again.
+        // Return SUCCESS if processing was successful,
+        // FAILED if something went wrong,
+        // or RETRY to re-queue the job for another attempt.
         return Pacchettino.Result.SUCCESS;
     };
 
