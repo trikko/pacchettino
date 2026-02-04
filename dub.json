@@ -2,8 +2,8 @@
 	"authors": [
 		"Andrea Fontana"
 	],
-	"copyright": "Copyright © 2025, Andrea Fontana",
-	"description": "thread-safe way to setup jobs between process",
-	"license": "proprietary",
+	"copyright": "Copyright © 2025-2026, Andrea Fontana",
+	"description": "A simple file-based queue system designed to be safe for concurrent use across multiple threads and processes.",
+	"license": "MIT",
 	"name": "pacchettino"
 }
