@@ -63,3 +63,18 @@ unittest
    rmdirRecurse("/tmp/test-pacchettino");
    std.file.remove("/tmp/test-pacchettino-file");
 }
+
+unittest
+{
+   auto p = new Pacchettino("/tmp/test-pacchettino-missing");
+
+   try {
+      p.sendFile("/tmp/non-existent-file-12345");
+      assert(false, "Should have thrown Exception");
+   } catch (Exception e) {
+      assert(e.msg.startsWith("File not found"), "Unexpected error message: " ~ e.msg);
+   }
+
+   if (exists("/tmp/test-pacchettino-missing"))
+      rmdirRecurse("/tmp/test-pacchettino-missing");
+}

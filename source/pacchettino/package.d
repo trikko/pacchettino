@@ -107,6 +107,9 @@ class Pacchettino
 	 */
 	string sendFile(const string filePath, bool copyFile = true) const
 	{
+		if (!exists(filePath))
+			throw new Exception("File not found: " ~ filePath);
+
 		auto id = UUIDv7!string();
 		auto tmp = buildNormalizedPath(baseDir, "tmp", id);
 		auto path = buildNormalizedPath(baseDir, "queued", "fle-" ~ id ~ "-" ~ filePath.baseName);
