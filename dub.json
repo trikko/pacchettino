@@ -1,0 +1,9 @@
+{
+	"authors": [
+		"Andrea Fontana"
+	],
+	"copyright": "Copyright © 2025, Andrea Fontana",
+	"description": "thread-safe way to setup jobs between process",
+	"license": "proprietary",
+	"name": "pacchettino"
+}

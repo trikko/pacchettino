@@ -1,0 +1,16 @@
+.dub
+docs.json
+__dummy.html
+docs/
+/mq
+mq.so
+mq.dylib
+mq.dll
+mq.a
+mq.lib
+mq-test-*
+*.exe
+*.pdb
+*.o
+*.obj
+*.lst
