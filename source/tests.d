@@ -135,10 +135,12 @@ unittest
     // Check if file exists in user dest
     assert(exists(userDest), "User destination file not found");
 
-    // Check if file exists in success folder (It probably won't if implementation is as suspected)
+    // Check if file exists in success folder
     string successPath3 = buildNormalizedPath(baseDir, "success", "fle-" ~ id3 ~ "-testfile_move.txt");
-    // This assertion is expected to fail if my hypothesis is correct
-    assert(exists(successPath3), "Success file for moved file not found: " ~ successPath3);
+
+    // Since we removed the backup logic, the file will NOT be in the success folder if moved by user.
+    // We expect a warning in the logs (verified manually or via log capture if possible, but here we just check logic)
+    assert(!exists(successPath3), "File should not exist in success folder if moved by user");
 
     // We want to verify behavior first. If I assert true and it fails, I confirmed the issue.
     // assert(exists(successPath3));

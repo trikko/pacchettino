@@ -7,6 +7,8 @@ import std.string 	: representation, split, join, lastIndexOf;
 import std.conv 		: to;
 import std.array 		: array;
 import std.algorithm : min, startsWith, canFind;
+import std.logger 	: warning;
+import std.stdio : stderr;
 import std.process  : thisProcessID;
 import core.sys.posix.signal : kill;
 import core.stdc.errno : errno, EPERM, ESRCH;
@@ -320,18 +322,13 @@ class Pacchettino
 				try { rename(file, path); }
 				catch (Exception e) { rmdirRecurse(processingDirPath); continue; }
 
-				string backupPath = path ~ ".bak";
-				if (keepPolicy != KeepPolicy.NONE)
-				{
-					try { std.file.copy(path, backupPath); }
-					catch (Exception e) {}
-				}
-
 				try {	result = onFileReceived(id, name, path); }
 				catch (Exception e) { result = Result.FAILED; }
 
-				if (!path.exists && backupPath.exists)
-					path = backupPath;
+				if (!path.exists && keepPolicy != KeepPolicy.NONE)
+				{
+					warning("File ", path, " was moved or deleted by the user callback. It should be kept in the processing directory.");
+				}
 
 			}
 
@@ -358,7 +355,7 @@ class Pacchettino
 				else if (result == Result.SUCCESS && (keepPolicy & KeepPolicy.SUCCESS)) rename(path, buildNormalizedPath(baseDir, "success", id));
 				else if (result == Result.RETRY) rename(path, buildNormalizedPath(baseDir, "queued", id));
 			}
-			catch (Exception e) { }
+			catch (Exception e) { warning("Pacchettino rename error: ", e.msg); }
 
 			rmdirRecurse(processingDirPath);
 		}
