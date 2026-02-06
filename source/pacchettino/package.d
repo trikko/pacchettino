@@ -320,8 +320,18 @@ class Pacchettino
 				try { rename(file, path); }
 				catch (Exception e) { rmdirRecurse(processingDirPath); continue; }
 
+				string backupPath = path ~ ".bak";
+				if (keepPolicy != KeepPolicy.NONE)
+				{
+					try { std.file.copy(path, backupPath); }
+					catch (Exception e) {}
+				}
+
 				try {	result = onFileReceived(id, name, path); }
 				catch (Exception e) { result = Result.FAILED; }
+
+				if (!path.exists && backupPath.exists)
+					path = backupPath;
 
 			}
 
