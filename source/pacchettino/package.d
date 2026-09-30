@@ -201,6 +201,93 @@ class Pacchettino
 	}
 
 	/**
+	 * Counts the number of jobs currently queued.
+	 *
+	 * Returns:
+	 *   The number of queued jobs.
+	 */
+	size_t countQueued() const
+	{
+		return dirEntries(buildNormalizedPath(baseDir, "queued"), "{fle,raw}-*", SpanMode.shallow).array.length;
+	}
+
+	/**
+	 * Counts the number of jobs currently being processed.
+	 *
+	 * Returns:
+	 *   The number of processing jobs.
+	 */
+	size_t countProcessing() const
+	{
+		return dirEntries(buildNormalizedPath(baseDir, "processing"), SpanMode.shallow).array.length;
+	}
+
+	/**
+	 * Counts the number of jobs that completed successfully.
+	 *
+	 * Throws:
+	 *   Exception if the keep policy does not keep successful jobs.
+	 *
+	 * Returns:
+	 *   The number of successful jobs.
+	 */
+	size_t countSuccessful() const
+	{
+		if (!(keepPolicy & KeepPolicy.SUCCESS))
+			throw new Exception("countSuccessful is not supported when SUCCESS policy is not set");
+		return dirEntries(buildNormalizedPath(baseDir, "success"), SpanMode.shallow).array.length;
+	}
+
+	/**
+	 * Counts the number of jobs that failed.
+	 *
+	 * Throws:
+	 *   Exception if the keep policy does not keep failed jobs.
+	 *
+	 * Returns:
+	 *   The number of failed jobs.
+	 */
+	size_t countFailed() const
+	{
+		if (!(keepPolicy & KeepPolicy.FAILED))
+			throw new Exception("countFailed is not supported when FAILED policy is not set");
+		return dirEntries(buildNormalizedPath(baseDir, "failed"), SpanMode.shallow).array.length;
+	}
+
+	/**
+	 * Counts the number of jobs that were interrupted.
+	 *
+	 * Throws:
+	 *   Exception if the keep policy does not keep interrupted jobs.
+	 *
+	 * Returns:
+	 *   The number of interrupted jobs.
+	 */
+	size_t countInterrupted() const
+	{
+		if (!(keepPolicy & KeepPolicy.INTERRUPTED))
+			throw new Exception("countInterrupted is not supported when INTERRUPTED policy is not set");
+		return dirEntries(buildNormalizedPath(baseDir, "interrupted"), SpanMode.shallow).array.length;
+	}
+
+	/**
+	 * Counts the total number of jobs in all states (based on current keep policy).
+	 *
+	 * Returns:
+	 *   The total number of jobs across all applicable directories.
+	 */
+	size_t countAll() const
+	{
+		size_t total = countQueued() + countProcessing();
+
+		if (keepPolicy & KeepPolicy.SUCCESS) total += countSuccessful();
+		if (keepPolicy & KeepPolicy.FAILED) total += countFailed();
+		if (keepPolicy & KeepPolicy.INTERRUPTED) total += countInterrupted();
+
+		return total;
+	}
+
+	/**
 	 * Processes all available jobs in the queue.
 	 *
 	 * Params:

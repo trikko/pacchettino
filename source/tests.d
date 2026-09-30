@@ -151,6 +151,96 @@ unittest
 
 unittest
 {
+    // Test counter methods
+    string baseDir = "/tmp/test-pacchettino-counters";
+    if (exists(baseDir)) rmdirRecurse(baseDir);
+
+    auto p = new Pacchettino(baseDir);
+
+    // Initially all counters should be 0
+    assert(p.countQueued() == 0);
+    assert(p.countProcessing() == 0);
+    assert(p.countSuccessful() == 0);
+    assert(p.countFailed() == 0);
+    assert(p.countAll() == 0);
+
+    // Add a job to queue
+    auto id1 = p.sendData("Test Data 1");
+    assert(p.countQueued() == 1);
+    assert(p.countAll() == 1);
+
+    // Add another job to queue
+    auto id2 = p.sendData("Test Data 2");
+    assert(p.countQueued() == 2);
+    assert(p.countAll() == 2);
+
+    // Process one job successfully
+    p.onDataReceived = (id, data) {
+        return Pacchettino.Result.SUCCESS;
+    };
+    p.receiveOne();
+
+    // After processing one job successfully
+    assert(p.countQueued() == 1);      // One still queued
+    assert(p.countProcessing() == 0);  // None currently processing
+    assert(p.countSuccessful() == 1);  // One successful
+    assert(p.countAll() == 2);       // Total remains the same
+
+    // Process the remaining job as failure
+    p.onDataReceived = (id, data) {
+        return Pacchettino.Result.FAILED;
+    };
+    p.receiveOne();
+
+    // After processing second job as failure
+    assert(p.countQueued() == 0);      // None queued
+    assert(p.countProcessing() == 0);  // None currently processing
+    assert(p.countSuccessful() == 1);  // One successful
+    assert(p.countFailed() == 1);      // One failed
+    assert(p.countAll() == 2);       // Total remains the same
+
+    // Test with different keep policy
+    string baseDir2 = "/tmp/test-pacchettino-counters-policy";
+    if (exists(baseDir2)) rmdirRecurse(baseDir2);
+
+    auto p2 = new Pacchettino(baseDir2, Pacchettino.KeepPolicy.NONE);
+
+    auto id3 = p2.sendData("Test Data 3");
+    assert(p2.countQueued() == 1);
+    assert(p2.countAll() == 1);
+
+    // Process with NONE policy - should throw exceptions for status methods
+    p2.onDataReceived = (id, data) {
+        return Pacchettino.Result.SUCCESS;
+    };
+    p2.receiveOne();
+
+    // After processing with NONE policy, job should be gone
+    assert(p2.countQueued() == 0);
+    assert(p2.countAll() == 0);
+
+    // Trying to check success/failure status with NONE policy should throw
+    try {
+        p2.countSuccessful();
+        assert(false, "Should have thrown Exception");
+    } catch (Exception e) {
+        // Expected
+    }
+
+    try {
+        p2.countFailed();
+        assert(false, "Should have thrown Exception");
+    } catch (Exception e) {
+        // Expected
+    }
+
+    // Cleanup
+    if (exists(baseDir)) rmdirRecurse(baseDir);
+    if (exists(baseDir2)) rmdirRecurse(baseDir2);
+}
+
+unittest
+{
     // UUIDv7 must be strictly monotonic, even beyond 4096 ids per millisecond
     import pacchettino.uuid;
 
