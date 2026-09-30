@@ -13,7 +13,7 @@ jobs:
       matrix:
         dc: [dmd-latest, ldc-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: dlang-community/setup-dlang@v2
         with:
@@ -39,7 +39,7 @@ jobs:
     name: macOS / ldc-latest
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: dlang-community/setup-dlang@v2
         with:
@@ -66,7 +66,7 @@ jobs:
       matrix:
         dc: [dmd-latest, ldc-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: dlang-community/setup-dlang@v2
         with:
