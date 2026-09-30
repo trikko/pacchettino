@@ -146,11 +146,11 @@ top (a priority can be a second queue directory).
 
 ## If the project uses another version
 
-This file documents the `main` branch. The last release, 1.0.3, has only the
-constructor, `sendData`/`sendFile` without delay, `receive`/`receiveOne`
-returning `void`, the callbacks and the `is*` methods. `status`, `sentAt`,
-`requeue`, `requeueAll`, `cleanup`, the `count*` methods, delays, `retryDelay`,
-`isScheduled`, `receiveOne(timeout)`, FIFO order, Windows support,
-`crashDetection` and `durable` came after. If
-`dub.selections.json` pins an older pacchettino, check the signatures against
-the source in `source/pacchettino/package.d`.
+This file documents 1.1.0. Versions 1.0.x have only the constructor,
+`sendData`/`sendFile` without delay, `receive`/`receiveOne` returning `void`,
+the callbacks and the `is*` methods, and do not build on Windows. `status`,
+`sentAt`, `requeue`, `requeueAll`, `cleanup`, the `count*` methods, delays,
+`retryDelay`, `isScheduled`, `receiveOne(timeout)`, FIFO order, Windows
+support, `crashDetection` and `durable` came with 1.1.0. If
+`dub.selections.json` pins a different pacchettino, check the signatures
+against the source in `source/pacchettino/package.d`.

@@ -2,7 +2,7 @@
 
 pacchettino is a job queue for the D programming language made of plain directories on disk. Producers add jobs (some bytes, or a file), consumers in other processes or threads process them. No server, no database, no dependencies. Linux, macOS, BSD and Windows. MIT license. `import pacchettino;` for the queue, `import pacchettino.uuid;` for the UUID functions.
 
-This file documents the `main` branch; see "Versions" at the end for what the last release (1.0.3) lacks.
+This file documents version 1.1.0; see "Versions" at the end for what 1.0.x lacks.
 
 - Rules for agents: https://trikko.github.io/pacchettino/AGENTS.md
 - API documentation: https://trikko.github.io/pacchettino/
@@ -257,4 +257,4 @@ enum UUIDNamespace : ubyte[16] { DNS, URL, OID, X500 }
 
 ## Versions
 
-The last release is 1.0.3. It has the constructor, `KeepPolicy`, `Result`, `sendData`/`sendFile` without `delay`, `receive`/`receiveOne` returning `void`, `onDataReceived`/`onFileReceived`, and `isQueued`, `isProcessing`, `isSuccess`, `isFailed`, `isInterrupted` (accepting only the id returned by `send*`), with jobs taken in directory order when `randomize` is false, does not build on Windows, and has no `crashDetection` nor `durable`. Everything else in this file is newer.
+Versions 1.0.x (up to 1.0.3) have the constructor, `KeepPolicy`, `Result`, `sendData`/`sendFile` without `delay`, `receive`/`receiveOne` returning `void`, `onDataReceived`/`onFileReceived`, and `isQueued`, `isProcessing`, `isSuccess`, `isFailed`, `isInterrupted` (accepting only the id returned by `send*`), with jobs taken in directory order when `randomize` is false, does not build on Windows, and has no `crashDetection` nor `durable`. Everything else in this file came with 1.1.0.
