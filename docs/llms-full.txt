@@ -47,7 +47,7 @@ string sendFile(const string filePath, bool copyFile = true, Duration delay = Du
 - Return the job id, a UUIDv7 string (`"01a0f35b-14fd-7000-903a-e2144b506627"`). UUIDv7 ids are ordered by time.
 - `sendFile` copies the file into the queue; with `copyFile = false` it moves it (a rename, or copy and delete across filesystems). Throws if the file does not exist or its name is longer than 200 bytes. The consumer gets the original file name back.
 - `sendData` is for small payloads: the consumer receives all of it in memory. For big data write a file and use `sendFile`.
-- `delay`: the job waits in `scheduled/` and is moved to the queue by the first `receive*` after the delay.
+- `delay`: the job waits in `scheduled/` and is moved to the queue by `receive`/`receiveOne` once the delay has expired (`receive` checks every time, `receiveOne` at most every 100 ms).
 
 ```d
 auto id = queue.sendData("send newsletter 12");
@@ -75,7 +75,7 @@ bool   receiveOne(Duration timeout, bool randomize = true, Duration pollInterval
 - `onFileReceived(id, name, path)`: `id` is `"fle-<uuid>-<name>"`, `name` the original file name, `path` where the file is now (inside `processing/`). Read it or copy it; do not move or delete it: pacchettino moves or deletes it according to the result. Close it before returning: Windows cannot move an open file. On Windows, when the path is longer than `MAX_PATH` it starts with `\\?\`: `std.file` accepts it, some external programs do not.
 - The callbacks run inside `receive*`, in the calling thread, one job at a time. There is no background thread: nothing is processed, promoted from `scheduled/` or recovered from a crash except inside a `receive*` call.
 - `receive()` processes every job currently queued and returns how many. `receiveOne()` processes at most one and returns `true` if it did. `receiveOne(timeout)` waits for a job up to `timeout`, checking every `pollInterval`, and returns `false` if none arrived: it is the loop of a consumer.
-- `randomize`: random order by default (many consumers do not compete for the same job); `false` processes the oldest job first (FIFO).
+- `randomize`: random order by default (many consumers do not compete for the same job); `false` processes the oldest job first (FIFO). `receiveOne` lists the queue once and takes the jobs listed one per call, sharing them between the threads of the process: it lists again when they are over, so its cost does not grow with the length of the queue.
 
 ### Result
 

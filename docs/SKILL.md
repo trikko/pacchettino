@@ -114,8 +114,9 @@ void consumer()
     The callback may have done part of the work. Call `requeueAll()` (or
     `requeueAll(KeepPolicy.INTERRUPTED)`) to try again.
 11. **Delays**: `sendData(data, delay)`, `sendFile(path, true, delay)`. The job
-    waits in `scheduled/` and becomes `QUEUED` at the first `receive*` after the
-    delay. `copyFile` comes before `delay` in `sendFile`.
+    waits in `scheduled/` and becomes `QUEUED` once the delay has expired, at
+    the next `receive` or within about 100 ms with `receiveOne`. `copyFile`
+    comes before `delay` in `sendFile`.
 12. **Keep policy.** `new Pacchettino(dir, KeepPolicy.FAILED | KeepPolicy.INTERRUPTED)`
     keeps only those; the default `ALL` keeps every processed job forever:
     call `cleanup(which, olderThan)` periodically. `isSuccess`, `isFailed`,

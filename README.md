@@ -230,7 +230,7 @@ queue.sendFile("./report.pdf", true, 1.hours);
 queue.retryDelay = 30.seconds;
 ```
 
-Delayed jobs are picked up by the next `receive`/`receiveOne` call after their delay, so with `receiveOne(timeout)` they are processed within one poll interval.
+Delayed jobs are moved to the queue by `receive`/`receiveOne` once their delay has expired: with `receiveOne(timeout)` within about 100 ms.
 
 Job ids passed to callbacks can be used too with `status`, `requeue`, `sentAt` and the `is*` methods.
 
