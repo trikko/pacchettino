@@ -14,3 +14,4 @@ pacchettino-test-*
 *.obj
 *.lst
 /tests/stress
+/tests/bench
