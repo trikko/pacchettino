@@ -148,3 +148,22 @@ unittest
     // Cleanup
     if (exists(baseDir)) rmdirRecurse(baseDir);
 }
+
+unittest
+{
+    // UUIDv7 must be strictly monotonic, even beyond 4096 ids per millisecond
+    import pacchettino.uuid;
+
+    string prev = UUIDv7!string();
+    foreach (i; 0 .. 20_000)
+    {
+        auto cur = UUIDv7!string();
+        assert(cur > prev, prev ~ " >= " ~ cur);
+        assert(cur[14] == '7');
+        prev = cur;
+    }
+
+    // Known v5/v3 values (RFC 4122 DNS namespace)
+    assert(UUIDv5("www.example.com", UUIDNamespace.DNS) == "2ed6657d-e927-568b-95e1-2665a8aea6a2");
+    assert(UUIDv3("www.example.com", UUIDNamespace.DNS) == "5df41881-3aed-3515-88a7-2f4a814cf09e");
+}

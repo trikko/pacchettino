@@ -75,12 +75,19 @@ ubyte[16] UUIDv7(T)() if (is(T == ubyte))
 			localTimestamp = cast(ulong)timestamp;
 			localCounter   = 0;
 		}
-		else
+		else if (storedCounter < 0xFFF)
 		{
 			// Same ms (or clock backward): increment, use stored timestamp
 			localTimestamp = storedTs;
-			localCounter   = (storedCounter + 1) & 0xFFF;
+			localCounter   = storedCounter + 1;
 			newState       = (storedTs << 12) | localCounter;
+		}
+		else
+		{
+			// Counter overflow: borrow the next millisecond to keep ids monotonic
+			localTimestamp = storedTs + 1;
+			localCounter   = 0;
+			newState       = localTimestamp << 12;
 		}
 
 	} while (!cas(&state, oldState, newState));
@@ -106,30 +113,25 @@ ubyte[16] UUIDv7(T)() if (is(T == ubyte))
 /// Generate a UUID v3 (namespace + name based with MD5) as string
 string UUIDv3(T = string)(string name, ubyte[16] namespace = ubyte[16].init) if(is(T==string)) {
 	import std.string : representation;
-	return UUIDv3!T(cast(ubyte[])name.representation, namespace);
+	return UUIDv3!T(name.representation, namespace);
 }
 
 /// Generate a UUID v3 (namespace + name based with MD5) as string
-string UUIDv3(T = string)(ubyte[] name, ubyte[16] namespace = ubyte[16].init) if(is(T==string)) {
+string UUIDv3(T = string)(const(ubyte)[] name, ubyte[16] namespace = ubyte[16].init) if(is(T==string)) {
 	return formatUUID(UUIDv3!ubyte(name, namespace));
 }
 
 /// Generate a UUID v3 (namespace + name based with MD5) as ubyte[16]
-ubyte[16] UUIDv3(T)(ubyte[] name, ubyte[16] namespace = ubyte[16].init) if (is(T == ubyte))
+ubyte[16] UUIDv3(T)(const(ubyte)[] name, ubyte[16] namespace = ubyte[16].init) if (is(T == ubyte))
 {
 	import std.digest.md : MD5;
 
-	ubyte[16] value;
-
 	// Create MD5 hash of namespace and name
-	auto md5 = new MD5();
+	MD5 md5;
 	md5.start();
 	md5.put(namespace);
 	md5.put(name);
-	ubyte[] hash = md5.finish().dup;
-
-	// Copy first 16 bytes of hash to value
-	value[0..16] = hash[0..16];
+	ubyte[16] value = md5.finish();
 
 	// Set version and variant
 	value[6] = (value[6] & 0x0f) | 0x30; // Version 3
@@ -141,30 +143,27 @@ ubyte[16] UUIDv3(T)(ubyte[] name, ubyte[16] namespace = ubyte[16].init) if (is(T
 /// Generate a UUID v5 (namespace + name based) as string
 string UUIDv5(T = string)(string name, ubyte[16] namespace = ubyte[16].init) if(is(T==string)) {
 	import std.string : representation;
-	return UUIDv5!string(cast(ubyte[])name.representation, namespace);
+	return UUIDv5!string(name.representation, namespace);
 }
 
 /// Generate a UUID v5 (namespace + name based) as string
-string UUIDv5(T = string)(ubyte[] name, ubyte[16] namespace = ubyte[16].init) if(is(T==string)) {
+string UUIDv5(T = string)(const(ubyte)[] name, ubyte[16] namespace = ubyte[16].init) if(is(T==string)) {
 	return formatUUID(UUIDv5!ubyte(name, namespace));
 }
 
 /// Generate a UUID v5 (namespace + name based) as ubyte[16]
-ubyte[16] UUIDv5(T)(ubyte[] name, ubyte[16] namespace = ubyte[16].init) if (is(T == ubyte))
+ubyte[16] UUIDv5(T)(const(ubyte)[] name, ubyte[16] namespace = ubyte[16].init) if (is(T == ubyte))
 {
 	import std.digest.sha : SHA1;
 
-	ubyte[16] value;
-
 	// Create SHA1 hash of namespace and name
-	auto sha1 = new SHA1();
+	SHA1 sha1;
 	sha1.start();
 	sha1.put(namespace);
 	sha1.put(name);
-	ubyte[] hash = sha1.finish().dup;
 
 	// Copy first 16 bytes of hash to value
-	value[0..16] = hash[0..16];
+	ubyte[16] value = sha1.finish()[0..16];
 
 	// Set version and variant
 	value[6] = (value[6] & 0x0f) | 0x50; // Version 5
@@ -177,11 +176,10 @@ private:
 
 string formatUUID(ubyte[16] uuid)
 {
-	import std.string : toLower;
 	import std.format : format;
-	import std.digest : toHexString;
+	import std.digest : toHexString, LetterCase;
 
-	char[32] tmp = uuid.toHexString.toLower;
+	char[32] tmp = uuid.toHexString!(LetterCase.lower);
 	return format("%s-%s-%s-%s-%s", tmp[0..8], tmp[8..12], tmp[12..16], tmp[16..20], tmp[20..$]);
 }
 
@@ -195,13 +193,46 @@ void randomBytes(ubyte[] buffer)
 
 		HCRYPTPROV hProvider;
 
-		CryptAcquireContext(&hProvider, null, null, PROV_RSA_FULL, CRYPT_VERIFYCONTEXT);
-		CryptGenRandom(hProvider, cast(uint)buffer.length, buffer.ptr);
-		CryptReleaseContext(hProvider, 0);
+		if (!CryptAcquireContext(&hProvider, null, null, PROV_RSA_FULL, CRYPT_VERIFYCONTEXT))
+			throw new Exception("CryptAcquireContext failed");
+
+		scope(exit) CryptReleaseContext(hProvider, 0);
+
+		if (!CryptGenRandom(hProvider, cast(uint)buffer.length, buffer.ptr))
+			throw new Exception("CryptGenRandom failed");
 	}
-	else
+	else version(linux)
 	{
-		import std.file : read;
-		buffer[0..$] = cast(ubyte[])read("/dev/urandom", buffer.length);
+		import core.stdc.errno : errno, EINTR, ENOSYS;
+
+		size_t done = 0;
+		while (done < buffer.length)
+		{
+			auto n = getrandom(buffer.ptr + done, buffer.length - done, 0);
+
+			if (n > 0) done += n;
+			else if (n < 0 && errno == EINTR) continue;
+			else if (n < 0 && errno == ENOSYS) { readUrandom(buffer); return; }
+			else throw new Exception("getrandom failed");
+		}
 	}
+	else readUrandom(buffer);
+}
+
+version(linux)
+{
+	import core.sys.posix.sys.types : ssize_t;
+	extern(C) ssize_t getrandom(void* buf, size_t buflen, uint flags) nothrow @nogc;
+}
+
+version(Windows) {}
+else void readUrandom(ubyte[] buffer)
+{
+	import std.file : read;
+	auto data = cast(ubyte[])read("/dev/urandom", buffer.length);
+
+	if (data.length != buffer.length)
+		throw new Exception("Short read from /dev/urandom");
+
+	buffer[0..$] = data[];
 }
