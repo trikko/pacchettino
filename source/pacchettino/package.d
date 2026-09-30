@@ -33,7 +33,7 @@
  *   $(LI `Pacchettino.KeepPolicy` — which processed jobs stay on disk.)
  * )
  *
- * Works on POSIX systems (Linux, macOS, BSD).
+ * Works on Linux, macOS, BSD and Windows.
  *
  * See_Also:
  *   $(LINK2 https://github.com/trikko/pacchettino, the README) for a guided tour,
@@ -54,8 +54,74 @@ import std.logger 	: warning;
 import std.process  : thisProcessID;
 import std.datetime : Clock, Duration, SysTime, msecs;
 import core.sync.mutex : Mutex;
-import core.sys.posix.signal : kill;
-import core.stdc.errno : errno, EPERM, EXDEV;
+version(Posix)
+{
+	import core.sys.posix.signal : kill;
+	import core.stdc.errno : errno, EPERM, EXDEV;
+
+	// Error of rename() when source and destination are on different filesystems
+	private enum crossDeviceError = EXDEV;
+
+	// kill(pid, 0) returns 0 if the process exists; EPERM means it exists but is not ours
+	private bool isProcessAlive(int pid) { return kill(pid, 0) == 0 || errno == EPERM; }
+
+	private void moveFile(string from, string to) { std.file.rename(from, to); }
+}
+else version(Windows)
+{
+	import core.sys.windows.windows;
+
+	private enum crossDeviceError = ERROR_NOT_SAME_DEVICE;
+	private enum DWORD PROCESS_QUERY_LIMITED_INFORMATION = 0x1000; // Missing in druntime
+
+	private bool isProcessAlive(int pid)
+	{
+		HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, cast(DWORD) pid);
+
+		// Access denied: it exists, but belongs to someone else
+		if (h is null) return GetLastError() == ERROR_ACCESS_DENIED;
+		scope(exit) CloseHandle(h);
+
+		// Signaled when the process has exited
+		return WaitForSingleObject(h, 0) == WAIT_TIMEOUT;
+	}
+
+	// Antivirus and indexers keep new files open for a moment, and Windows cannot rename an open file:
+	// try again a few times before giving up.
+	private void moveFile(string from, string to)
+	{
+		import core.thread : Thread;
+
+		foreach (attempt; 0 .. 6)
+		{
+			try { std.file.rename(from, to); return; }
+			catch (FileException e)
+			{
+				bool busy = e.errno == ERROR_ACCESS_DENIED || e.errno == ERROR_SHARING_VIOLATION || e.errno == ERROR_LOCK_VIOLATION;
+				if (!busy || attempt == 5) throw e;
+				Thread.sleep((10 << attempt).msecs);
+			}
+		}
+	}
+
+	// Paths longer than MAX_PATH need the \\?\ prefix, which requires an absolute path with backslashes
+	private string longPath(string path)
+	{
+		string p = buildNormalizedPath(absolutePath(path));
+		if (p.startsWith(`\\?\`)) return p;
+		if (p.startsWith(`\\`)) return `\\?\UNC\` ~ p[2..$];
+		return `\\?\` ~ p;
+	}
+
+	// The same path without the prefix when it is not needed: not every program accepts it
+	private string shortPath(string path)
+	{
+		if (path.startsWith(`\\?\UNC\`) && path.length - 6 < MAX_PATH) return `\\` ~ path[8..$];
+		if (path.startsWith(`\\?\`) && !path.startsWith(`\\?\UNC\`) && path.length - 4 < MAX_PATH) return path[4..$];
+		return path;
+	}
+}
+else static assert(false, "pacchettino supports POSIX systems and Windows only");
 
 import std.file, std.path;
 
@@ -132,6 +198,9 @@ class Pacchettino
 	 *   keepPolicy = The policy for keeping processed files.
 	 */
 	this(string baseDir, KeepPolicy keepPolicy = KeepPolicy.ALL) {
+		// The paths of the jobs can exceed MAX_PATH
+		version(Windows) baseDir = longPath(baseDir);
+
 		this.baseDir = baseDir;
 		this.onFileReceived = (id, name, path) => Result.FAILED;
 		this.onDataReceived = (id, data) => Result.FAILED;
@@ -180,7 +249,7 @@ class Pacchettino
 		try
 		{
 			std.file.write(tmp, s);
-			std.file.rename(tmp, path);
+			moveFile(tmp, path);
 		}
 		catch (Exception e)
 		{
@@ -207,7 +276,11 @@ class Pacchettino
 	 */
 	string sendFile(const string filePath, bool copyFile = true, Duration delay = Duration.zero) const
 	{
-		if (!exists(filePath))
+		// The path given can exceed MAX_PATH too
+		version(Windows) string source = longPath(filePath);
+		else string source = filePath;
+
+		if (!exists(source))
 			throw new Exception("File not found: " ~ filePath);
 
 		if (filePath.baseName.length > maxFileNameLength)
@@ -218,20 +291,20 @@ class Pacchettino
 		auto path = enqueuePath("fle-" ~ id ~ "-" ~ filePath.baseName, delay);
 
 		if (copyFile)
-			std.file.copy(filePath, tmp);
+			std.file.copy(source, tmp);
 		else
 		{
-			try std.file.rename(filePath, tmp);
+			try moveFile(source, tmp);
 			catch (FileException e)
 			{
 				// Different filesystems: fall back to copy + remove
-				if (e.errno != EXDEV) throw e;
-				std.file.copy(filePath, tmp);
-				std.file.remove(filePath);
+				if (e.errno != crossDeviceError) throw e;
+				std.file.copy(source, tmp);
+				std.file.remove(source);
 			}
 		}
 
-		try std.file.rename(tmp, path);
+		try moveFile(tmp, path);
 		catch (Exception e)
 		{
 			if (tmp.exists) try { std.file.remove(tmp); } catch (Exception) {}
@@ -270,7 +343,7 @@ class Pacchettino
 			// Sorted by due time: nothing else is ready
 			if (due > now) break;
 
-			try rename(entry.name, buildNormalizedPath(baseDir, "queued", name[duePrefixLength..$]));
+			try moveFile(entry.name, buildNormalizedPath(baseDir, "queued", name[duePrefixLength..$]));
 			catch (Exception e) {} // Promoted by someone else in the meanwhile
 		}
 	}
@@ -546,7 +619,7 @@ class Pacchettino
 			string path = findJob(id, dir);
 			if (path is null) continue;
 
-			try { rename(path, buildNormalizedPath(baseDir, "queued", path.baseName)); return true; }
+			try { moveFile(path, buildNormalizedPath(baseDir, "queued", path.baseName)); return true; }
 			catch (Exception e) {} // Moved by someone else in the meanwhile
 		}
 
@@ -572,7 +645,7 @@ class Pacchettino
 
 			foreach (entry; dirEntries(buildNormalizedPath(baseDir, dir), "{fle,raw}-*", SpanMode.shallow).array)
 			{
-				try { rename(entry.name, buildNormalizedPath(baseDir, "queued", entry.baseName)); moved++; }
+				try { moveFile(entry.name, buildNormalizedPath(baseDir, "queued", entry.baseName)); moved++; }
 				catch (Exception e) {} // Moved by someone else in the meanwhile
 			}
 		}
@@ -693,9 +766,7 @@ class Pacchettino
 				int pid = pidStr.to!int;
 
 				// Check if the process exists.
-				// kill(pid, 0) returns 0 if it exists, -1 on error.
-				// If errno is ESRCH, the process does not exist. EPERM means it exists but is not ours.
-				bool isAlive = (kill(pid, 0) == 0) || (errno == EPERM);
+				bool isAlive = isProcessAlive(pid);
 
 				// Our own PID: the job is alive only if this process is actually working on it.
 				// Otherwise it was left by a previous process with the same PID (e.g. PID 1 in containers).
@@ -723,7 +794,7 @@ class Pacchettino
 							// Move to interrupted using the original name (without PID)
 							try
 							{
-								rename(entry.name, buildNormalizedPath(baseDir, "interrupted", originalIdFull));
+								moveFile(entry.name, buildNormalizedPath(baseDir, "interrupted", originalIdFull));
 							}
 							catch (Exception e) {}
 						}
@@ -804,14 +875,17 @@ class Pacchettino
 			try { mkdir(processingDirPath); }
 			catch (Exception e) { continue; }
 
-			try { rename(file, path); }
+			try { moveFile(file, path); }
 			catch (Exception e) { try { rmdirRecurse(processingDirPath); } catch (Exception) {} continue; }
 
 			processed++;
 
 			if (isFile)
 			{
-				try {	result = onFileReceived(id, name, path); }
+				version(Windows) string userPath = shortPath(path);
+				else string userPath = path;
+
+				try {	result = onFileReceived(id, name, userPath); }
 				catch (Exception e) { result = Result.FAILED; }
 
 				if (!path.exists && keepPolicy != KeepPolicy.NONE)
@@ -829,9 +903,9 @@ class Pacchettino
 			}
 
 			try {
-				if (result == Result.FAILED && (keepPolicy & KeepPolicy.FAILED)) rename(path, buildNormalizedPath(baseDir, "failed", id));
-				else if (result == Result.SUCCESS && (keepPolicy & KeepPolicy.SUCCESS)) rename(path, buildNormalizedPath(baseDir, "success", id));
-				else if (result == Result.RETRY) rename(path, enqueuePath(id, retryDelay));
+				if (result == Result.FAILED && (keepPolicy & KeepPolicy.FAILED)) moveFile(path, buildNormalizedPath(baseDir, "failed", id));
+				else if (result == Result.SUCCESS && (keepPolicy & KeepPolicy.SUCCESS)) moveFile(path, buildNormalizedPath(baseDir, "success", id));
+				else if (result == Result.RETRY) moveFile(path, enqueuePath(id, retryDelay));
 			}
 			catch (Exception e) { warning("Pacchettino rename error: ", e.msg); }
 

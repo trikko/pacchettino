@@ -7,7 +7,7 @@ import std;
 unittest
 {
 
-	auto p = new Pacchettino("/tmp/test-pacchettino");
+	auto p = new Pacchettino(buildPath(tempDir, "test-pacchettino"));
 
    p.onDataReceived = (id, data) {
       assert(data == "Hello World");
@@ -29,15 +29,15 @@ unittest
    assert(p.isSuccess(id));
 
 
-   rmdirRecurse("/tmp/test-pacchettino");
+   rmdirRecurse(buildPath(tempDir, "test-pacchettino"));
 }
 
 unittest
 {
 
-	auto p = new Pacchettino("/tmp/test-pacchettino");
+	auto p = new Pacchettino(buildPath(tempDir, "test-pacchettino"));
 
-   std.file.write("/tmp/test-pacchettino-file", "Hello World");
+   std.file.write(buildPath(tempDir, "test-pacchettino-file"), "Hello World");
 
    p.onFileReceived = (id, name, path) {
 
@@ -46,7 +46,7 @@ unittest
       return Pacchettino.Result.SUCCESS;
    };
 
-	auto id = p.sendFile("/tmp/test-pacchettino-file");
+	auto id = p.sendFile(buildPath(tempDir, "test-pacchettino-file"));
 
    assert(p.isQueued(id));
    assert(!p.isProcessing(id));
@@ -61,29 +61,29 @@ unittest
    assert(p.isSuccess(id));
 
 
-   rmdirRecurse("/tmp/test-pacchettino");
-   std.file.remove("/tmp/test-pacchettino-file");
+   rmdirRecurse(buildPath(tempDir, "test-pacchettino"));
+   std.file.remove(buildPath(tempDir, "test-pacchettino-file"));
 }
 
 unittest
 {
-   auto p = new Pacchettino("/tmp/test-pacchettino-missing");
+   auto p = new Pacchettino(buildPath(tempDir, "test-pacchettino-missing"));
 
    try {
-      p.sendFile("/tmp/non-existent-file-12345");
+      p.sendFile(buildPath(tempDir, "non-existent-file-12345"));
       assert(false, "Should have thrown Exception");
    } catch (Exception e) {
       assert(e.msg.startsWith("File not found"), "Unexpected error message: " ~ e.msg);
    }
 
-   if (exists("/tmp/test-pacchettino-missing"))
-      rmdirRecurse("/tmp/test-pacchettino-missing");
+   if (exists(buildPath(tempDir, "test-pacchettino-missing")))
+      rmdirRecurse(buildPath(tempDir, "test-pacchettino-missing"));
 }
 
 unittest
 {
     // Reproduction test for file retention
-    string baseDir = "/tmp/test-pacchettino-retention";
+    string baseDir = buildPath(tempDir, "test-pacchettino-retention");
     if (exists(baseDir)) rmdirRecurse(baseDir);
 
     auto p = new Pacchettino(baseDir); // Defaults to KeepPolicy.ALL
@@ -153,7 +153,7 @@ unittest
 unittest
 {
     // Test counter methods
-    string baseDir = "/tmp/test-pacchettino-counters";
+    string baseDir = buildPath(tempDir, "test-pacchettino-counters");
     if (exists(baseDir)) rmdirRecurse(baseDir);
 
     auto p = new Pacchettino(baseDir);
@@ -201,7 +201,7 @@ unittest
     assert(p.countAll() == 2);       // Total remains the same
 
     // Test with different keep policy
-    string baseDir2 = "/tmp/test-pacchettino-counters-policy";
+    string baseDir2 = buildPath(tempDir, "test-pacchettino-counters-policy");
     if (exists(baseDir2)) rmdirRecurse(baseDir2);
 
     auto p2 = new Pacchettino(baseDir2, Pacchettino.KeepPolicy.NONE);
@@ -243,7 +243,7 @@ unittest
 unittest
 {
     // Stale jobs left by a previous process with our same PID (e.g. PID 1 in containers) are recovered
-    string baseDir = "/tmp/test-pacchettino-pid-reuse";
+    string baseDir = buildPath(tempDir, "test-pacchettino-pid-reuse");
     if (exists(baseDir)) rmdirRecurse(baseDir);
 
     auto p = new Pacchettino(baseDir);
@@ -265,7 +265,7 @@ unittest
 unittest
 {
     // receiveOne skips invalid entries and still processes one job; receive(false) is FIFO
-    string baseDir = "/tmp/test-pacchettino-fifo";
+    string baseDir = buildPath(tempDir, "test-pacchettino-fifo");
     if (exists(baseDir)) rmdirRecurse(baseDir);
 
     auto p = new Pacchettino(baseDir);
@@ -292,7 +292,7 @@ unittest
 unittest
 {
     // Data read errors are handled as failures instead of crashing receive()
-    string baseDir = "/tmp/test-pacchettino-bad-raw";
+    string baseDir = buildPath(tempDir, "test-pacchettino-bad-raw");
     if (exists(baseDir)) rmdirRecurse(baseDir);
 
     auto p = new Pacchettino(baseDir);
@@ -312,16 +312,23 @@ unittest
     rmdirRecurse(baseDir);
 }
 
+// Test files with long names can exceed MAX_PATH on Windows
+string longPath(string path)
+{
+    version(Windows) return `\\?\` ~ buildNormalizedPath(absolutePath(path));
+    else return path;
+}
+
 unittest
 {
     // File names too long are rejected upfront, without leaving temporary files
-    string baseDir = "/tmp/test-pacchettino-long-name";
-    if (exists(baseDir)) rmdirRecurse(baseDir);
+    string baseDir = buildPath(tempDir, "test-pacchettino-long-name");
+    if (exists(baseDir)) rmdirRecurse(longPath(baseDir));
 
     auto p = new Pacchettino(baseDir);
 
     string longFile = buildNormalizedPath(baseDir, 'a'.repeat(210).array.to!string);
-    std.file.write(longFile, "x");
+    std.file.write(longPath(longFile), "x");
 
     try {
         p.sendFile(longFile);
@@ -335,31 +342,31 @@ unittest
 
     // Just over the limit
     string overFile = buildNormalizedPath(baseDir, 'c'.repeat(201).array.to!string);
-    std.file.write(overFile, "x");
+    std.file.write(longPath(overFile), "x");
     try { p.sendFile(overFile); assert(false, "Should have thrown Exception"); }
     catch (Exception e) { assert(e.msg.startsWith("File name too long"), e.msg); }
 
     // The longest allowed name is queued and processed, even when delayed
     string delayedFile = buildNormalizedPath(baseDir, 'd'.repeat(200).array.to!string);
-    std.file.write(delayedFile, "x");
+    std.file.write(longPath(delayedFile), "x");
     auto delayedId = p.sendFile(delayedFile, true, 1.msecs);
     assert(p.isScheduled(delayedId));
 
     string okFile = buildNormalizedPath(baseDir, 'b'.repeat(200).array.to!string);
-    std.file.write(okFile, "x");
+    std.file.write(longPath(okFile), "x");
     auto id = p.sendFile(okFile);
 
     p.onFileReceived = (i, name, path) => Pacchettino.Result.SUCCESS;
     p.receive();
     assert(p.isSuccess(id));
 
-    rmdirRecurse(baseDir);
+    rmdirRecurse(longPath(baseDir));
 }
 
 unittest
 {
     // Moving a file from another filesystem falls back to copy + remove
-    string baseDir = "/tmp/test-pacchettino-xdev";
+    string baseDir = buildPath(tempDir, "test-pacchettino-xdev");
     string source = "/dev/shm/test-pacchettino-xdev-file";
 
     if (!exists("/dev/shm")) return;
@@ -378,7 +385,7 @@ unittest
 unittest
 {
     // cleanup removes kept jobs
-    string baseDir = "/tmp/test-pacchettino-cleanup";
+    string baseDir = buildPath(tempDir, "test-pacchettino-cleanup");
     if (exists(baseDir)) rmdirRecurse(baseDir);
 
     auto p = new Pacchettino(baseDir);
@@ -428,7 +435,7 @@ unittest
 unittest
 {
     // status, sentAt and requeue
-    string baseDir = "/tmp/test-pacchettino-status";
+    string baseDir = buildPath(tempDir, "test-pacchettino-status");
     if (exists(baseDir)) rmdirRecurse(baseDir);
 
     auto p = new Pacchettino(baseDir);
@@ -483,7 +490,7 @@ unittest
 unittest
 {
     // requeueAll
-    string baseDir = "/tmp/test-pacchettino-requeue-all";
+    string baseDir = buildPath(tempDir, "test-pacchettino-requeue-all");
     if (exists(baseDir)) rmdirRecurse(baseDir);
 
     auto p = new Pacchettino(baseDir);
@@ -517,7 +524,7 @@ unittest
 {
     // receiveOne with timeout
     import core.thread : Thread;
-    string baseDir = "/tmp/test-pacchettino-wait";
+    string baseDir = buildPath(tempDir, "test-pacchettino-wait");
     if (exists(baseDir)) rmdirRecurse(baseDir);
 
     auto p = new Pacchettino(baseDir);
@@ -544,7 +551,7 @@ unittest
     // Delayed jobs
     import core.thread : Thread;
 
-    string baseDir = "/tmp/test-pacchettino-delay";
+    string baseDir = buildPath(tempDir, "test-pacchettino-delay");
     if (exists(baseDir)) rmdirRecurse(baseDir);
 
     auto p = new Pacchettino(baseDir);
@@ -590,7 +597,7 @@ unittest
     // retryDelay
     import core.thread : Thread;
 
-    string baseDir = "/tmp/test-pacchettino-retry-delay";
+    string baseDir = buildPath(tempDir, "test-pacchettino-retry-delay");
     if (exists(baseDir)) rmdirRecurse(baseDir);
 
     auto p = new Pacchettino(baseDir);
@@ -618,4 +625,34 @@ unittest
     assert(p.status(id) == Pacchettino.Status.QUEUED);
 
     rmdirRecurse(baseDir);
+}
+
+version(Windows) unittest
+{
+    // Paths beyond MAX_PATH work; callbacks get the \\?\ prefix only when needed
+    string root = buildPath(tempDir, "test-pacchettino-longpath");
+    if (exists(root)) rmdirRecurse(root);
+
+    string shortBase = buildPath(root, "short");
+    string longBase = buildPath(root, 'x'.repeat(120).array.to!string, 'y'.repeat(120).array.to!string);
+
+    foreach (base; [shortBase, longBase])
+    {
+        auto p = new Pacchettino(base);
+
+        string file = buildPath(root, base == shortBase ? "doc.txt" : 'n'.repeat(150).array.to!string ~ ".txt");
+        if (!exists(root)) mkdirRecurse(root);
+        std.file.write(file, "long");
+        auto id = p.sendFile(file);
+
+        string got;
+        p.onFileReceived = (i, name, path) { got = path; assert(readText(path) == "long"); return Pacchettino.Result.SUCCESS; };
+        assert(p.receive() == 1);
+        assert(p.isSuccess(id));
+
+        if (base == shortBase) assert(!got.startsWith(`\\?\`), got);
+        else assert(got.startsWith(`\\?\`), got);
+    }
+
+    rmdirRecurse(`\\?\` ~ absolutePath(root));
 }
