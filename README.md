@@ -11,6 +11,9 @@ It uses atomic file operations (renames) and PID tracking to ensure jobs are pro
 - **Crash Recovery**: Automatically detects stalled jobs from dead processes and moves them to an `interrupted` state (or cleans them up based on policy).
 - **Flexible Retention**: Configure which jobs to keep after processing (Success, Failed, Interrupted) using bitwise flags.
 - **Simple API**: Easy methods to send data/files and define handlers for receiving them.
+- **FIFO or random order**: `receive(false)` / `receiveOne(false)` process jobs in the order they were sent.
+
+> **Note:** Pacchettino relies on POSIX APIs (`kill`) for crash recovery: it runs on Linux, macOS and BSD, but not on Windows.
 
 ## Usage Example
 
@@ -115,6 +118,20 @@ auto q3 = new Pacchettino("./queue", Pacchettino.KeepPolicy.FAILED | Pacchettino
 // Auto-delete everything after processing
 auto q4 = new Pacchettino("./queue", Pacchettino.KeepPolicy.NONE);
 ```
+
+Kept jobs are never deleted automatically. Use `cleanup` to remove them:
+
+```d
+// Remove successful jobs older than 7 days
+queue.cleanup(Pacchettino.KeepPolicy.SUCCESS, 7.days);
+
+// Remove all kept jobs
+queue.cleanup();
+```
+
+### Counters
+
+`countQueued`, `countProcessing`, `countSuccessful`, `countFailed`, `countInterrupted` and `countAll` return the number of jobs in each state.
 
 ### Folder Structure
 

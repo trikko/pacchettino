@@ -1,6 +1,7 @@
 module tests;
 
 import pacchettino;
+import pacchettino.uuid;
 import std;
 
 unittest
@@ -237,6 +238,161 @@ unittest
     // Cleanup
     if (exists(baseDir)) rmdirRecurse(baseDir);
     if (exists(baseDir2)) rmdirRecurse(baseDir2);
+}
+
+unittest
+{
+    // Stale jobs left by a previous process with our same PID (e.g. PID 1 in containers) are recovered
+    string baseDir = "/tmp/test-pacchettino-pid-reuse";
+    if (exists(baseDir)) rmdirRecurse(baseDir);
+
+    auto p = new Pacchettino(baseDir);
+
+    string jobName = "raw-" ~ UUIDv7!string();
+    string stale = buildNormalizedPath(baseDir, "processing", jobName ~ "." ~ thisProcessID.to!string);
+    mkdir(stale);
+    std.file.write(buildNormalizedPath(stale, "raw"), "Stale");
+
+    p.receive();
+
+    assert(!exists(stale));
+    assert(p.countProcessing() == 0);
+    assert(p.isInterrupted(jobName[4..$]));
+
+    rmdirRecurse(baseDir);
+}
+
+unittest
+{
+    // receiveOne skips invalid entries and still processes one job; receive(false) is FIFO
+    string baseDir = "/tmp/test-pacchettino-fifo";
+    if (exists(baseDir)) rmdirRecurse(baseDir);
+
+    auto p = new Pacchettino(baseDir);
+
+    // Malformed entry, sorted before any valid UUIDv7
+    std.file.write(buildNormalizedPath(baseDir, "queued", "fle-0000"), "bad");
+
+    string[] sent;
+    foreach (i; 0 .. 20) sent ~= p.sendData(i.to!string);
+
+    string[] received;
+    p.onDataReceived = (id, data) { received ~= id[4..$]; return Pacchettino.Result.SUCCESS; };
+
+    p.receiveOne(false);
+    assert(received == sent[0..1]);
+
+    p.receive(false);
+    assert(received == sent);
+    assert(p.countQueued() == 1); // Only the malformed entry is left
+
+    rmdirRecurse(baseDir);
+}
+
+unittest
+{
+    // Data read errors are handled as failures instead of crashing receive()
+    string baseDir = "/tmp/test-pacchettino-bad-raw";
+    if (exists(baseDir)) rmdirRecurse(baseDir);
+
+    auto p = new Pacchettino(baseDir);
+
+    // A directory instead of a file: it can be locked, but not read
+    mkdir(buildNormalizedPath(baseDir, "queued", "raw-" ~ UUIDv7!string()));
+    auto id = p.sendData("ok");
+
+    bool called = false;
+    p.onDataReceived = (i, data) { called = true; return Pacchettino.Result.SUCCESS; };
+    p.receive(false);
+
+    assert(called);
+    assert(p.isSuccess(id));
+    assert(p.countFailed() == 1);
+
+    rmdirRecurse(baseDir);
+}
+
+unittest
+{
+    // File names too long are rejected upfront, without leaving temporary files
+    string baseDir = "/tmp/test-pacchettino-long-name";
+    if (exists(baseDir)) rmdirRecurse(baseDir);
+
+    auto p = new Pacchettino(baseDir);
+
+    string longFile = buildNormalizedPath(baseDir, 'a'.repeat(210).array.to!string);
+    std.file.write(longFile, "x");
+
+    try {
+        p.sendFile(longFile);
+        assert(false, "Should have thrown Exception");
+    } catch (Exception e) {
+        assert(e.msg.startsWith("File name too long"), e.msg);
+    }
+
+    assert(p.countQueued() == 0);
+    assert(dirEntries(buildNormalizedPath(baseDir, "tmp"), SpanMode.shallow).empty);
+
+    // The longest allowed name is queued and processed
+    string okFile = buildNormalizedPath(baseDir, 'b'.repeat(200).array.to!string);
+    std.file.write(okFile, "x");
+    auto id = p.sendFile(okFile);
+
+    p.onFileReceived = (i, name, path) => Pacchettino.Result.SUCCESS;
+    p.receive();
+    assert(p.isSuccess(id));
+
+    rmdirRecurse(baseDir);
+}
+
+unittest
+{
+    // Moving a file from another filesystem falls back to copy + remove
+    string baseDir = "/tmp/test-pacchettino-xdev";
+    string source = "/dev/shm/test-pacchettino-xdev-file";
+
+    if (!exists("/dev/shm")) return;
+    if (exists(baseDir)) rmdirRecurse(baseDir);
+
+    auto p = new Pacchettino(baseDir);
+    std.file.write(source, "cross device");
+
+    auto id = p.sendFile(source, false);
+    assert(!exists(source));
+    assert(p.isQueued(id));
+
+    rmdirRecurse(baseDir);
+}
+
+unittest
+{
+    // cleanup removes kept jobs
+    string baseDir = "/tmp/test-pacchettino-cleanup";
+    if (exists(baseDir)) rmdirRecurse(baseDir);
+
+    auto p = new Pacchettino(baseDir);
+
+    p.sendData("a");
+    p.sendData("b");
+    p.onDataReceived = (id, data) => data == "a" ? Pacchettino.Result.SUCCESS : Pacchettino.Result.FAILED;
+    p.receive();
+
+    assert(p.countSuccessful() == 1 && p.countFailed() == 1);
+
+    // Nothing is old enough
+    assert(p.cleanup(Pacchettino.KeepPolicy.ALL, 1.hours) == 0);
+
+    assert(p.cleanup(Pacchettino.KeepPolicy.SUCCESS) == 1);
+    assert(p.countSuccessful() == 0 && p.countFailed() == 1);
+
+    assert(p.cleanup() == 1);
+    assert(p.countAll() == 0);
+
+    // Empty id never matches
+    p.sendData("c");
+    assert(!p.isQueued(""));
+
+    rmdirRecurse(baseDir);
 }
 
 unittest

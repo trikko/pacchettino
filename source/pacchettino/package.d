@@ -6,14 +6,27 @@ import std.random 	: randomShuffle;
 import std.string 	: representation, split, join, lastIndexOf;
 import std.conv 		: to;
 import std.array 		: array;
-import std.algorithm : min, startsWith, canFind;
+import std.algorithm : startsWith, canFind, sort;
+import std.range 		: walkLength;
 import std.logger 	: warning;
-import std.stdio : stderr;
 import std.process  : thisProcessID;
+import std.datetime : Clock, Duration, SysTime;
+import core.sync.mutex : Mutex;
 import core.sys.posix.signal : kill;
-import core.stdc.errno : errno, EPERM, ESRCH;
+import core.stdc.errno : errno, EPERM, EXDEV;
 
 import std.file, std.path;
+
+// Processing directories currently in use by this process (shared across threads and instances).
+// Used to tell apart our own active jobs from stale ones left by a previous process with the same PID.
+private __gshared bool[string] activeJobs;
+private __gshared Mutex activeJobsMutex;
+
+shared static this() { activeJobsMutex = new Mutex(); }
+
+// Max length of a file name. The processing dir name is "fle-<uuid>-<name>.<pid>".
+private enum maxNameLength = 255;
+private enum maxFileNameLength = maxNameLength - "fle-".length - 36 - "-".length - ".".length - int.max.stringof.length;
 
 /**
  * A simple file-based queue system designed to be safe for concurrent use across multiple threads and processes.
@@ -92,8 +105,18 @@ class Pacchettino
 		auto id = UUIDv7!string();
 		auto tmp = buildNormalizedPath(baseDir, "tmp", id);
 		auto path = buildNormalizedPath(baseDir,"queued", "raw-" ~ id);
-		std.file.write(tmp, s);
-		std.file.rename(tmp, path);
+
+		try
+		{
+			std.file.write(tmp, s);
+			std.file.rename(tmp, path);
+		}
+		catch (Exception e)
+		{
+			if (tmp.exists) try { std.file.remove(tmp); } catch (Exception) {}
+			throw e;
+		}
+
 		return id;
 	}
 
@@ -106,11 +129,17 @@ class Pacchettino
 	 *
 	 * Returns:
 	 *   The ID of the queued job.
+	 *
+	 * Throws:
+	 *   Exception if the file does not exist or its name is too long to be queued.
 	 */
 	string sendFile(const string filePath, bool copyFile = true) const
 	{
 		if (!exists(filePath))
 			throw new Exception("File not found: " ~ filePath);
+
+		if (filePath.baseName.length > maxFileNameLength)
+			throw new Exception("File name too long (max " ~ maxFileNameLength.to!string ~ " bytes): " ~ filePath.baseName);
 
 		auto id = UUIDv7!string();
 		auto tmp = buildNormalizedPath(baseDir, "tmp", id);
@@ -119,13 +148,37 @@ class Pacchettino
 		if (copyFile)
 			std.file.copy(filePath, tmp);
 		else
-			std.file.rename(filePath, tmp);
+		{
+			try std.file.rename(filePath, tmp);
+			catch (FileException e)
+			{
+				// Different filesystems: fall back to copy + remove
+				if (e.errno != EXDEV) throw e;
+				std.file.copy(filePath, tmp);
+				std.file.remove(filePath);
+			}
+		}
 
-		std.file.rename(tmp, path);
+		try std.file.rename(tmp, path);
+		catch (Exception e)
+		{
+			if (tmp.exists) try { std.file.remove(tmp); } catch (Exception) {}
+			throw e;
+		}
+
 		return id;
 	}
 
-	private bool isInDirectory(string id, string directory) const => dirEntries(buildNormalizedPath(baseDir, directory), SpanMode.shallow).canFind!(f => f.baseName.length > 4 && (f.baseName.startsWith("fle-") || f.baseName.startsWith("raw-")) && f.baseName[4..$].startsWith(id));
+	private bool isInDirectory(string id, string directory) const
+	{
+		if (id.length == 0) return false;
+		return dirEntries(buildNormalizedPath(baseDir, directory), SpanMode.shallow).canFind!(f => f.baseName.length > 4 && (f.baseName.startsWith("fle-") || f.baseName.startsWith("raw-")) && f.baseName[4..$].startsWith(id));
+	}
+
+	private size_t countIn(string directory) const
+	{
+		return dirEntries(buildNormalizedPath(baseDir, directory), "{fle,raw}-*", SpanMode.shallow).walkLength;
+	}
 
 	/**
 	 * Checks if a job is currently being processed.
@@ -208,7 +261,7 @@ class Pacchettino
 	 */
 	size_t countQueued() const
 	{
-		return dirEntries(buildNormalizedPath(baseDir, "queued"), "{fle,raw}-*", SpanMode.shallow).array.length;
+		return countIn("queued");
 	}
 
 	/**
@@ -219,7 +272,7 @@ class Pacchettino
 	 */
 	size_t countProcessing() const
 	{
-		return dirEntries(buildNormalizedPath(baseDir, "processing"), SpanMode.shallow).array.length;
+		return countIn("processing");
 	}
 
 	/**
@@ -235,7 +288,7 @@ class Pacchettino
 	{
 		if (!(keepPolicy & KeepPolicy.SUCCESS))
 			throw new Exception("countSuccessful is not supported when SUCCESS policy is not set");
-		return dirEntries(buildNormalizedPath(baseDir, "success"), SpanMode.shallow).array.length;
+		return countIn("success");
 	}
 
 	/**
@@ -251,7 +304,7 @@ class Pacchettino
 	{
 		if (!(keepPolicy & KeepPolicy.FAILED))
 			throw new Exception("countFailed is not supported when FAILED policy is not set");
-		return dirEntries(buildNormalizedPath(baseDir, "failed"), SpanMode.shallow).array.length;
+		return countIn("failed");
 	}
 
 	/**
@@ -267,7 +320,7 @@ class Pacchettino
 	{
 		if (!(keepPolicy & KeepPolicy.INTERRUPTED))
 			throw new Exception("countInterrupted is not supported when INTERRUPTED policy is not set");
-		return dirEntries(buildNormalizedPath(baseDir, "interrupted"), SpanMode.shallow).array.length;
+		return countIn("interrupted");
 	}
 
 	/**
@@ -288,10 +341,45 @@ class Pacchettino
 	}
 
 	/**
+	 * Removes processed jobs kept in the success, failed and/or interrupted directories.
+	 *
+	 * Params:
+	 *   which = Which directories to clean (e.g. KeepPolicy.SUCCESS | KeepPolicy.FAILED).
+	 *   olderThan = Only remove jobs whose last modification time is older than this. Zero removes all.
+	 *
+	 * Returns:
+	 *   The number of removed jobs.
+	 */
+	size_t cleanup(KeepPolicy which = KeepPolicy.ALL, Duration olderThan = Duration.zero) const
+	{
+		size_t removed = 0;
+		SysTime limit = Clock.currTime - olderThan;
+
+		foreach (flag, dir; [KeepPolicy.SUCCESS : "success", KeepPolicy.FAILED : "failed", KeepPolicy.INTERRUPTED : "interrupted"])
+		{
+			if (!(which & flag)) continue;
+
+			foreach (entry; dirEntries(buildNormalizedPath(baseDir, dir), "{fle,raw}-*", SpanMode.shallow).array)
+			{
+				try
+				{
+					if (olderThan != Duration.zero && entry.timeLastModified > limit) continue;
+					if (entry.isDir) rmdirRecurse(entry.name);
+					else std.file.remove(entry.name);
+					removed++;
+				}
+				catch (Exception e) {} // Already removed by someone else
+			}
+		}
+
+		return removed;
+	}
+
+	/**
 	 * Processes all available jobs in the queue.
 	 *
 	 * Params:
-	 *   randomize = Whether to process jobs in random order.
+	 *   randomize = Whether to process jobs in random order. If false, jobs are processed in the order they were sent.
 	 */
 	void receive(bool randomize = true) const { receiveImpl(randomize, 0); }
 
@@ -299,7 +387,7 @@ class Pacchettino
 	 * Processes a single job from the queue.
 	 *
 	 * Params:
-	 *   randomize = Whether to select a job randomly.
+	 *   randomize = Whether to select a job randomly. If false, the oldest job is selected.
 	 */
 	void receiveOne(bool randomize = true) const { receiveImpl(randomize, 1); }
 
@@ -310,6 +398,7 @@ class Pacchettino
 	private void recoverStalledJobs() const
 	{
 		auto processingDirs = dirEntries(buildNormalizedPath(baseDir, "processing"), SpanMode.shallow).array;
+		int myPid = thisProcessID;
 
 		foreach (dir; processingDirs)
 		{
@@ -331,6 +420,15 @@ class Pacchettino
 				// kill(pid, 0) returns 0 if it exists, -1 on error.
 				// If errno is ESRCH, the process does not exist. EPERM means it exists but is not ours.
 				bool isAlive = (kill(pid, 0) == 0) || (errno == EPERM);
+
+				// Our own PID: the job is alive only if this process is actually working on it.
+				// Otherwise it was left by a previous process with the same PID (e.g. PID 1 in containers).
+				if (pid == myPid)
+				{
+					activeJobsMutex.lock();
+					scope(exit) activeJobsMutex.unlock();
+					isAlive = (dirName in activeJobs) !is null;
+				}
 
 				if (!isAlive)
 				{
@@ -374,41 +472,68 @@ class Pacchettino
 
 		auto files = dirEntries(buildNormalizedPath(baseDir, "queued"), "{fle,raw}-*", SpanMode.shallow).array;
 
-		if (randomize)
-			files = randomShuffle(files).array;
+		// UUIDv7 ids are time ordered: sorting by id gives FIFO order
+		if (randomize) files = randomShuffle(files).array;
+		else files.sort!((a, b) => a.baseName[4..$] < b.baseName[4..$]);
 
-		if (maxFiles > 0)
-			files = files[0..min(maxFiles, files.length)];
-
-		size_t i = 0;
+		size_t processed = 0;
 		int myPid = thisProcessID;
 
 		foreach (file; files)
 		{
+			if (maxFiles > 0 && processed >= maxFiles)
+				break;
+
 			Result result = Result.FAILED;
 			string id = file.baseName;
-			string path;
+			bool isFile = id.startsWith("fle-");
+			string name = "raw";
+
+			if (isFile)
+			{
+				auto parts = id.split("-");
+
+				// Malformed name, not a valid job
+				if (parts.length < 7) continue;
+
+				name = parts[6..$].join("-");
+			}
 
 			// Unique directory name with PID: id.PID
 			string processingDirName = id ~ "." ~ myPid.to!string;
 			string processingDirPath = buildNormalizedPath(baseDir, "processing", processingDirName);
+			string path = buildNormalizedPath(processingDirPath, name);
 
 			// Already processed by someone else
 			if (!file.exists)
 				continue;
 
-			if (file.baseName.startsWith("fle-"))
+			// Lock between threads of this process
 			{
-				auto name = file.baseName.split("-")[6..$].join("-");
-				path = buildNormalizedPath(processingDirPath, name);
+				activeJobsMutex.lock();
+				scope(exit) activeJobsMutex.unlock();
+				if (processingDirName in activeJobs) continue;
+				activeJobs[processingDirName] = true;
+			}
 
-				// A lock on the directory is needed
-				try { mkdir(processingDirPath); }
-				catch (Exception e) { continue; }
+			scope(exit)
+			{
+				activeJobsMutex.lock();
+				activeJobs.remove(processingDirName);
+				activeJobsMutex.unlock();
+			}
 
-				try { rename(file, path); }
-				catch (Exception e) { rmdirRecurse(processingDirPath); continue; }
+			// A lock on the directory is needed
+			try { mkdir(processingDirPath); }
+			catch (Exception e) { continue; }
 
+			try { rename(file, path); }
+			catch (Exception e) { try { rmdirRecurse(processingDirPath); } catch (Exception) {} continue; }
+
+			processed++;
+
+			if (isFile)
+			{
 				try {	result = onFileReceived(id, name, path); }
 				catch (Exception e) { result = Result.FAILED; }
 
@@ -416,26 +541,15 @@ class Pacchettino
 				{
 					warning("File ", path, " was moved or deleted by the user callback. It should be kept in the processing directory.");
 				}
-
 			}
-
-			else if (file.baseName.startsWith("raw-"))
+			else
 			{
-				auto data = cast(ubyte[])file.read();
-				path = buildNormalizedPath(processingDirPath, "raw");
-
-				// A lock on the directory is needed
-				try {	mkdir(processingDirPath); }
-				catch (Exception e) { continue; }
-
-				try { std.file.rename(file, path); }
-				catch (Exception e) { rmdirRecurse(processingDirPath); continue; }
-
-				try {	result = onDataReceived(id, data); }
+				try {
+					auto data = cast(ubyte[])std.file.read(path);
+					result = onDataReceived(id, data);
+				}
 				catch (Exception e) { result = Result.FAILED; }
 			}
-
-			else continue;
 
 			try {
 				if (result == Result.FAILED && (keepPolicy & KeepPolicy.FAILED)) rename(path, buildNormalizedPath(baseDir, "failed", id));
@@ -444,7 +558,8 @@ class Pacchettino
 			}
 			catch (Exception e) { warning("Pacchettino rename error: ", e.msg); }
 
-			rmdirRecurse(processingDirPath);
+			try { rmdirRecurse(processingDirPath); }
+			catch (Exception e) { warning("Pacchettino cleanup error: ", e.msg); }
 		}
 	}
 
