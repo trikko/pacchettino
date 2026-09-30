@@ -26,7 +26,14 @@ jobs:
         run: dub test
 
       - name: Stress test
-        run: dub run --single tests/stress.d
+        shell: bash
+        run: |
+          dub build --single tests/stress.d
+          ./tests/stress
+          ./tests/stress --lock
+
+      - name: Stress test, consumers in separate PID namespaces (like containers)
+        run: sudo ./tests/stress --lock --spawn="unshare --pid --fork --kill-child"
 
   macos:
     name: macOS / ldc-latest
@@ -45,7 +52,11 @@ jobs:
         run: dub test
 
       - name: Stress test
-        run: dub run --single tests/stress.d
+        shell: bash
+        run: |
+          dub build --single tests/stress.d
+          ./tests/stress
+          ./tests/stress --lock
 
   windows:
     name: Windows / ${{ matrix.dc }}
@@ -68,4 +79,8 @@ jobs:
         run: dub test
 
       - name: Stress test
-        run: dub run --single tests/stress.d
+        shell: bash
+        run: |
+          dub build --single tests/stress.d
+          ./tests/stress
+          ./tests/stress --lock

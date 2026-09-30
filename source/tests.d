@@ -656,3 +656,87 @@ version(Windows) unittest
 
     rmdirRecurse(`\\?\` ~ absolutePath(root));
 }
+
+unittest
+{
+    // CrashDetection.LOCK_FILE: jobs of owners that are gone are recovered, ours are not
+    string baseDir = buildPath(tempDir, "test-pacchettino-lockfile");
+    if (exists(baseDir)) rmdirRecurse(baseDir);
+
+    auto p = new Pacchettino(baseDir);
+    p.crashDetection = Pacchettino.CrashDetection.LOCK_FILE;
+
+    string owners = buildPath(baseDir, "owners");
+
+    // A job of an owner whose lock file is missing, and one whose lock file is not locked
+    string lost = "raw-" ~ UUIDv7!string();
+    string unlocked = "raw-" ~ UUIDv7!string();
+    mkdirRecurse(buildPath(baseDir, "processing", lost ~ ".deadbeef00"));
+    std.file.write(buildPath(baseDir, "processing", lost ~ ".deadbeef00", "raw"), "lost");
+    mkdirRecurse(buildPath(baseDir, "processing", unlocked ~ ".unlocked00"));
+    std.file.write(buildPath(baseDir, "processing", unlocked ~ ".unlocked00", "raw"), "unlocked");
+    mkdirRecurse(owners);
+    std.file.write(buildPath(owners, "unlocked00"), "");
+
+    // A lock file left without jobs
+    std.file.write(buildPath(owners, "leftover00"), "");
+
+    string token;
+    p.onDataReceived = (i, data) {
+        // Our own job while we process it: never recovered, even by our own checks
+        token = dirEntries(owners, SpanMode.shallow).map!(e => e.baseName).filter!(n => n != "unlocked00" && n != "leftover00").front;
+        assert(p.receive() == 0);
+        assert(p.isProcessing(i));
+        return Pacchettino.Result.SUCCESS;
+    };
+
+    auto id = p.sendData("mine");
+    assert(p.receive() == 1);
+    assert(p.isSuccess(id));
+
+    assert(p.status(lost) == Pacchettino.Status.INTERRUPTED);
+    assert(p.status(unlocked) == Pacchettino.Status.INTERRUPTED);
+    assert(p.countProcessing() == 0);
+
+    // Only our lock file is left
+    assert(dirEntries(owners, SpanMode.shallow).map!(e => e.baseName).array == [token]);
+
+    // On Windows our lock file cannot go away while this process is alive: removed by the next run
+    version(Windows) {}
+    else rmdirRecurse(baseDir);
+}
+
+unittest
+{
+    // durable: everything works the same, only slower
+    import core.thread : Thread;
+
+    string baseDir = buildPath(tempDir, "test-pacchettino-durable");
+    if (exists(baseDir)) rmdirRecurse(baseDir);
+
+    auto p = new Pacchettino(baseDir);
+    p.durable = true;
+
+    std.file.write(buildPath(baseDir, "doc.txt"), "file");
+    auto fileId = p.sendFile(buildPath(baseDir, "doc.txt"));
+    auto dataId = p.sendData("data");
+    auto delayed = p.sendData("later", 1.msecs);
+
+    p.onFileReceived = (i, name, path) => Pacchettino.Result.FAILED;
+    p.onDataReceived = (i, data) => Pacchettino.Result.SUCCESS;
+
+    Thread.sleep(5.msecs);
+    assert(p.receive() == 3);
+    assert(p.isFailed(fileId) && p.isSuccess(dataId) && p.isSuccess(delayed));
+
+    assert(p.requeue(fileId));
+    assert(p.isQueued(fileId));
+
+    auto p2 = new Pacchettino(baseDir, Pacchettino.KeepPolicy.NONE);
+    p2.durable = true;
+    p2.onFileReceived = (i, name, path) => Pacchettino.Result.SUCCESS;
+    assert(p2.receive() == 1);
+    assert(p2.status(fileId) == Pacchettino.Status.UNKNOWN);
+
+    rmdirRecurse(baseDir);
+}

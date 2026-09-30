@@ -2,10 +2,10 @@
  * A job queue made of plain directories: one program sends jobs, another one
  * (or many, in other processes or threads) processes them.
  *
- * A job is either some bytes (`sendData`) or a file (`sendFile`). It is written
- * to disk before `send*` returns, so nothing is lost if a program stops or
- * crashes, and a job left half done by a process that died is detected and
- * moved to `interrupted/`. Each job is given to one consumer only, even with
+ * A job is either some bytes (`sendData`) or a file (`sendFile`). It is in the
+ * filesystem before `send*` returns, so nothing is lost if a program stops or
+ * crashes (set `Pacchettino.durable` to survive power cuts too), and a job left
+ * half done by a process that died is detected and moved to `interrupted/`. Each job is given to one consumer only, even with
  * many consumers on the same directory. No server, no database, no dependencies.
  *
  * Example:
@@ -30,7 +30,8 @@
  *   $(LI `Pacchettino.sendData` and `Pacchettino.sendFile` — adding jobs, now or with a delay;)
  *   $(LI `Pacchettino.onDataReceived`, `Pacchettino.onFileReceived` and `Pacchettino.receiveOne` — processing them;)
  *   $(LI `Pacchettino.status`, `Pacchettino.requeue` and `Pacchettino.cleanup` — following and managing them;)
- *   $(LI `Pacchettino.KeepPolicy` — which processed jobs stay on disk.)
+ *   $(LI `Pacchettino.KeepPolicy` — which processed jobs stay on disk;)
+ *   $(LI `Pacchettino.durable` and `Pacchettino.crashDetection` — for power cuts, and for consumers in containers.)
  * )
  *
  * Works on Linux, macOS, BSD and Windows.
@@ -65,13 +66,101 @@ version(Posix)
 	// kill(pid, 0) returns 0 if the process exists; EPERM means it exists but is not ours
 	private bool isProcessAlive(int pid) { return kill(pid, 0) == 0 || errno == EPERM; }
 
-	private void moveFile(string from, string to) { std.file.rename(from, to); }
+	private void moveFile(string from, string to, bool durable = false) { std.file.rename(from, to); }
+
+	import core.sys.posix.fcntl : open, O_RDONLY, O_RDWR, O_CREAT, O_EXCL;
+
+	// Missing in druntime on some platforms
+	static if (__traits(compiles, { import core.sys.posix.fcntl : O_CLOEXEC; }))
+		import core.sys.posix.fcntl : O_CLOEXEC;
+	else version(Apple) private enum O_CLOEXEC = 0x1000000;
+	else version(FreeBSD) private enum O_CLOEXEC = 0x100000;
+	else version(NetBSD) private enum O_CLOEXEC = 0x400000;
+	else version(OpenBSD) private enum O_CLOEXEC = 0x10000;
+	else static assert(false, "O_CLOEXEC is not known on this platform");
+	import core.sys.posix.unistd : close, unlink, fsync;
+	import core.stdc.errno : ENOENT;
+	import std.exception : ErrnoException;
+	import std.string : toStringz;
+
+	// Not in druntime for every platform; the constants are the same on Linux, macOS and BSD
+	pragma(mangle, "flock") private extern(C) int flockFile(int fd, int operation) nothrow @nogc;
+	private enum LOCK_EX = 2, LOCK_NB = 4;
+
+	private alias OwnerHandle = int;
+
+	// Creates owners/<token> locked: written in tmp/ and moved, so nobody can see it unlocked
+	private OwnerHandle registerOwner(string baseDir, string token)
+	{
+		string tmp = buildNormalizedPath(baseDir, "tmp", "owner-" ~ token);
+		int fd = open(tmp.toStringz, O_RDWR | O_CREAT | O_EXCL | O_CLOEXEC, 420); // 0644
+		if (fd < 0) throw new ErrnoException("Cannot create " ~ tmp);
+
+		if (flockFile(fd, LOCK_EX | LOCK_NB) != 0 )
+		{
+			close(fd);
+			throw new ErrnoException("Cannot lock " ~ tmp);
+		}
+
+		std.file.rename(tmp, buildNormalizedPath(baseDir, "owners", token));
+		return fd;
+	}
+
+	// Removes the owner file at exit (the lock is still held: nobody can take it in the meanwhile)
+	private void unregisterOwner(string baseDir, string token, OwnerHandle fd)
+	{
+		unlink(buildNormalizedPath(baseDir, "owners", token).toStringz);
+		close(fd);
+	}
+
+	// A process after fork() shares the lock of its parent: it only drops its copy
+	private void forgetOwner(OwnerHandle fd) { close(fd); }
+
+	// The owner is alive while it holds the lock. A dead owner's file is removed.
+	private bool isOwnerAlive(string baseDir, string token)
+	{
+		string path = buildNormalizedPath(baseDir, "owners", token);
+		int fd = open(path.toStringz, O_RDONLY | O_CLOEXEC);
+
+		// Missing: dead. Any other error: better to assume it is alive than to steal its jobs.
+		if (fd < 0) return errno != ENOENT;
+		scope(exit) close(fd);
+
+		if (flockFile(fd, LOCK_EX | LOCK_NB) != 0) return true;
+
+		unlink(path.toStringz);
+		return false;
+	}
+
+	private void syncPath(string path)
+	{
+		int fd = open(path.toStringz, O_RDONLY | O_CLOEXEC);
+		if (fd < 0) throw new ErrnoException("Cannot open " ~ path);
+		scope(exit) close(fd);
+
+		// On macOS fsync does not flush the disk cache
+		version(Apple)
+		{
+			import core.sys.darwin.fcntl : F_FULLFSYNC;
+			import core.sys.posix.fcntl : fcntl;
+			if (fcntl(fd, F_FULLFSYNC) == 0) return;
+		}
+
+		if (fsync(fd) != 0) throw new ErrnoException("Cannot sync " ~ path);
+	}
+
+	private void syncFile(string path) { syncPath(path); }
+	private void syncDir(string path) { syncPath(path); }
 }
 else version(Windows)
 {
 	import core.sys.windows.windows;
 
 	private enum crossDeviceError = ERROR_NOT_SAME_DEVICE;
+
+	// Missing in druntime
+	private struct RenameInfo { BOOL replaceIfExists; HANDLE rootDirectory; DWORD fileNameLength; wchar[1] fileName; }
+	private extern(Windows) BOOL SetFileInformationByHandle(HANDLE, FILE_INFO_BY_HANDLE_CLASS, LPVOID, DWORD) nothrow @nogc;
 	private enum DWORD PROCESS_QUERY_LIMITED_INFORMATION = 0x1000; // Missing in druntime
 
 	private bool isProcessAlive(int pid)
@@ -88,13 +177,40 @@ else version(Windows)
 
 	// Antivirus and indexers keep new files open for a moment, and Windows cannot rename an open file:
 	// try again a few times before giving up.
-	private void moveFile(string from, string to)
+	private void moveFile(string from, string to, bool durable = false)
 	{
 		import core.thread : Thread;
+		import std.utf : toUTF16z;
+
+		// A move on Windows goes through a handle, and the handle follows the file: if two processes opened
+		// the same job at once, the second one would move it away from the first. So the file is opened
+		// without sharing (nobody else can open it until it has moved) and moved with that same handle.
+		void move()
+		{
+			import std.utf : toUTF16;
+
+			DWORD access = DELETE | SYNCHRONIZE | (durable ? GENERIC_WRITE : 0);
+			HANDLE h = CreateFileW(from.toUTF16z, access, 0, null, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_BACKUP_SEMANTICS, null);
+			if (h == INVALID_HANDLE_VALUE) throw new FileException(from, GetLastError());
+			scope(exit) CloseHandle(h);
+
+			wstring target = to.toUTF16;
+			auto buffer = new ubyte[RenameInfo.sizeof + target.length * wchar.sizeof];
+			auto info = cast(RenameInfo*) buffer.ptr;
+			info.replaceIfExists = TRUE;
+			info.fileNameLength = cast(DWORD)(target.length * wchar.sizeof);
+			(cast(wchar*) &info.fileName)[0 .. target.length] = target[];
+
+			if (!SetFileInformationByHandle(h, FILE_INFO_BY_HANDLE_CLASS.FileRenameInfo, info, cast(DWORD) buffer.length))
+				throw new FileException(from, GetLastError());
+
+			// With durable, the move is written to the disk before returning
+			if (durable && !FlushFileBuffers(h)) throw new FileException(to, GetLastError());
+		}
 
 		foreach (attempt; 0 .. 6)
 		{
-			try { std.file.rename(from, to); return; }
+			try { move(); return; }
 			catch (FileException e)
 			{
 				bool busy = e.errno == ERROR_ACCESS_DENIED || e.errno == ERROR_SHARING_VIOLATION || e.errno == ERROR_LOCK_VIOLATION;
@@ -112,6 +228,63 @@ else version(Windows)
 		if (p.startsWith(`\\`)) return `\\?\UNC\` ~ p[2..$];
 		return `\\?\` ~ p;
 	}
+
+	private alias OwnerHandle = HANDLE;
+
+	// owners/<token> opened without sharing reads: nobody else can open it while the owner is alive,
+	// and it is deleted when the owner exits or dies
+	private OwnerHandle registerOwner(string baseDir, string token)
+	{
+		import std.utf : toUTF16z;
+
+		string path = buildNormalizedPath(baseDir, "owners", token);
+		// Shared for deleting only, so that the queue directory can still be removed
+		HANDLE h = CreateFileW(path.toUTF16z, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_DELETE, null, CREATE_NEW,
+			FILE_ATTRIBUTE_NORMAL | FILE_FLAG_DELETE_ON_CLOSE, null);
+
+		if (h == INVALID_HANDLE_VALUE) throw new FileException(path, GetLastError());
+		return h;
+	}
+
+	private void unregisterOwner(string baseDir, string token, OwnerHandle h) { CloseHandle(h); }
+	private void forgetOwner(OwnerHandle h) {}
+
+	private bool isOwnerAlive(string baseDir, string token)
+	{
+		import std.utf : toUTF16z;
+
+		string path = buildNormalizedPath(baseDir, "owners", token);
+		HANDLE h = CreateFileW(path.toUTF16z, GENERIC_READ, 0, null, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, null);
+
+		if (h == INVALID_HANDLE_VALUE)
+		{
+			auto error = GetLastError();
+
+			// Missing: dead. In use, or any other error: better to assume it is alive than to steal its jobs.
+			return error != ERROR_FILE_NOT_FOUND && error != ERROR_PATH_NOT_FOUND;
+		}
+
+		// Opened: nobody holds it
+		CloseHandle(h);
+		try std.file.remove(path); catch (Exception e) {}
+		return false;
+	}
+
+	private void syncFile(string path)
+	{
+		import std.utf : toUTF16z;
+
+		HANDLE h = CreateFileW(path.toUTF16z, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+			null, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, null);
+
+		if (h == INVALID_HANDLE_VALUE) throw new FileException(path, GetLastError());
+		scope(exit) CloseHandle(h);
+
+		if (!FlushFileBuffers(h)) throw new FileException(path, GetLastError());
+	}
+
+	// Directories are made durable by MOVEFILE_WRITE_THROUGH in moveFile
+	private void syncDir(string path) {}
 
 	// The same path without the prefix when it is not needed: not every program accepts it
 	private string shortPath(string path)
@@ -132,14 +305,93 @@ private __gshared Mutex activeJobsMutex;
 
 shared static this() { activeJobsMutex = new Mutex(); }
 
+// With CrashDetection.LOCK_FILE every consumer process holds a lock on <baseDir>/owners/<token> while
+// it is alive: its jobs are in processing/<job>.<token>. A job whose owner lock can be taken belongs to
+// a dead process. Unlike PIDs, this works also between containers with their own PID namespace.
+private struct Owner { string token; int pid; OwnerHandle handle; }
+private __gshared Owner[string] owners; // by baseDir, guarded by activeJobsMutex
+
+shared static ~this()
+{
+	foreach (baseDir, owner; owners)
+		if (owner.pid == thisProcessID)
+			try unregisterOwner(baseDir, owner.token, owner.handle); catch (Exception e) {}
+}
+
+// Tokens are 10 characters [0-9a-z] starting with a letter, so they are never mistaken for the PIDs
+// used as suffix by older versions (which in turn ignore them)
+private enum tokenLength = 10;
+
+private string newToken()
+{
+	enum letters = "abcdefghijklmnopqrstuvwxyz";
+	enum chars = "0123456789abcdefghijklmnopqrstuvwxyz";
+
+	ubyte[16] random = UUIDv4!ubyte();
+	char[tokenLength] token;
+	token[0] = letters[random[0] % letters.length];
+	foreach (i; 1 .. tokenLength) token[i] = chars[random[i] % chars.length];
+	return token.idup;
+}
+
+private bool isToken(string s)
+{
+	import std.ascii : isLowercaseLetter = isLower, isDigit;
+	import std.algorithm : all;
+	return s.length == tokenLength && s[0].isLowercaseLetter && s.all!(c => c.isLowercaseLetter || c.isDigit);
+}
+
+private bool isLegacyPid(string s)
+{
+	import std.ascii : isDigit;
+	import std.algorithm : all;
+	return s.length > 0 && s.all!(c => c.isDigit);
+}
+
+// The token of this process for baseDir, registered on first use
+private string ownerToken(string baseDir)
+{
+	activeJobsMutex.lock();
+	scope(exit) activeJobsMutex.unlock();
+
+	int pid = thisProcessID;
+
+	if (auto owner = baseDir in owners)
+	{
+		if (owner.pid == pid) return owner.token;
+
+		// We are a child created by fork(): the lock belongs to the parent
+		forgetOwner(owner.handle);
+		owners.remove(baseDir);
+	}
+
+	mkdirRecurse(buildNormalizedPath(baseDir, "owners"));
+
+	string token = newToken();
+	owners[baseDir] = Owner(token, pid, registerOwner(baseDir, token));
+	return token;
+}
+
+// The token of this process for baseDir, or null if it never processed jobs there
+private string currentToken(string baseDir)
+{
+	activeJobsMutex.lock();
+	scope(exit) activeJobsMutex.unlock();
+
+	if (auto owner = baseDir in owners)
+		if (owner.pid == thisProcessID) return owner.token;
+
+	return null;
+}
+
 // Max length of a file name (NAME_MAX). The longest names used are:
-// "fle-<uuid>-<name>.<pid>" in processing/ and "<due ms>-fle-<uuid>-<name>" in scheduled/.
+// "fle-<uuid>-<name>.<token>" in processing/ and "<due ms>-fle-<uuid>-<name>" in scheduled/.
 private enum maxNameLength = 255;
 private enum jobNameOverhead = "fle-".length + 36 + "-".length;
-private enum pidSuffixLength = ".".length + int.max.stringof.length;
+private enum ownerSuffixLength = ".".length + 10; // tokenLength, or a PID of older versions
 private enum dueLength = 13; // Unix time in ms, zero padded (enough until year 2286)
 private enum duePrefixLength = dueLength + "-".length;
-private enum maxFileNameLength = maxNameLength - jobNameOverhead - (duePrefixLength > pidSuffixLength ? duePrefixLength : pidSuffixLength);
+private enum maxFileNameLength = maxNameLength - jobNameOverhead - (duePrefixLength > ownerSuffixLength ? duePrefixLength : ownerSuffixLength);
 
 // Current unix time in ms
 private long nowMsecs()
@@ -161,6 +413,23 @@ class Pacchettino
 		SUCCESS, /// Job completed successfully
 		FAILED,  /// Job failed
 		RETRY    /// Job should be retried
+	}
+
+	/**
+	 * How consumers tell a crashed consumer from one still working on its job.
+	 */
+	enum CrashDetection
+	{
+		/// By process ID (default). For consumers on the same machine, sharing the same PID namespace.
+		PID,
+
+		/**
+		 * By a lock file each consumer process holds in `owners/` while alive: the operating system
+		 * releases it when the process dies. Use it when consumers run in different containers
+		 * (each with its own PIDs) on the same directory; set it on all of them.
+		 * Slightly slower: one more file open for each job being processed by others.
+		 */
+		LOCK_FILE
 	}
 
 	/**
@@ -249,7 +518,8 @@ class Pacchettino
 		try
 		{
 			std.file.write(tmp, s);
-			moveFile(tmp, path);
+			if (durable) syncFile(tmp);
+			commitMove(tmp, path);
 		}
 		catch (Exception e)
 		{
@@ -304,7 +574,11 @@ class Pacchettino
 			}
 		}
 
-		try moveFile(tmp, path);
+		try
+		{
+			if (durable) syncFile(tmp);
+			commitMove(tmp, path);
+		}
 		catch (Exception e)
 		{
 			if (tmp.exists) try { std.file.remove(tmp); } catch (Exception) {}
@@ -312,6 +586,13 @@ class Pacchettino
 		}
 
 		return id;
+	}
+
+	// Moves a job to another directory; with durable, the move is on the disk when it returns
+	private void commitMove(string from, string to) const
+	{
+		moveFile(from, to, durable);
+		if (durable) syncDir(to.dirName);
 	}
 
 	// Where to put a job: queued/ or, if delayed, scheduled/ with the due time as prefix
@@ -343,7 +624,7 @@ class Pacchettino
 			// Sorted by due time: nothing else is ready
 			if (due > now) break;
 
-			try moveFile(entry.name, buildNormalizedPath(baseDir, "queued", name[duePrefixLength..$]));
+			try commitMove(entry.name, buildNormalizedPath(baseDir, "queued", name[duePrefixLength..$]));
 			catch (Exception e) {} // Promoted by someone else in the meanwhile
 		}
 	}
@@ -619,7 +900,7 @@ class Pacchettino
 			string path = findJob(id, dir);
 			if (path is null) continue;
 
-			try { moveFile(path, buildNormalizedPath(baseDir, "queued", path.baseName)); return true; }
+			try { commitMove(path, buildNormalizedPath(baseDir, "queued", path.baseName)); return true; }
 			catch (Exception e) {} // Moved by someone else in the meanwhile
 		}
 
@@ -645,7 +926,7 @@ class Pacchettino
 
 			foreach (entry; dirEntries(buildNormalizedPath(baseDir, dir), "{fle,raw}-*", SpanMode.shallow).array)
 			{
-				try { moveFile(entry.name, buildNormalizedPath(baseDir, "queued", entry.baseName)); moved++; }
+				try { commitMove(entry.name, buildNormalizedPath(baseDir, "queued", entry.baseName)); moved++; }
 				catch (Exception e) {} // Moved by someone else in the meanwhile
 			}
 		}
@@ -748,6 +1029,8 @@ class Pacchettino
 	{
 		auto processingDirs = dirEntries(buildNormalizedPath(baseDir, "processing"), SpanMode.shallow).array;
 		int myPid = thisProcessID;
+		string myToken = currentToken(baseDir);
+		bool lockFiles = myToken !is null;
 
 		foreach (dir; processingDirs)
 		{
@@ -761,64 +1044,65 @@ class Pacchettino
 			string dirName = dir.baseName;
 			auto lastDot = dirName.lastIndexOf('.');
 
-			// If it has no extension or invalid format, ignore it (or we could clean up, but better be cautious)
+			// Not a job being processed
 			if (lastDot == -1 || lastDot == dirName.length - 1) continue;
 
-			string pidStr = dirName[lastDot + 1 .. $];
+			string owner = dirName[lastDot + 1 .. $];
+			bool isAlive;
 
 			try
 			{
-				int pid = pidStr.to!int;
-
-				// Check if the process exists.
-				bool isAlive = isProcessAlive(pid);
-
-				// Our own PID: the job is alive only if this process is actually working on it.
-				// Otherwise it was left by a previous process with the same PID (e.g. PID 1 in containers).
-				if (pid == myPid)
+				// Our own job: alive only if this process is actually working on it
+				if (owner == myToken || (isLegacyPid(owner) && owner.to!int == myPid))
 				{
 					activeJobsMutex.lock();
 					scope(exit) activeJobsMutex.unlock();
 					isAlive = (dirName in activeJobs) !is null;
 				}
-
-				if (!isAlive)
-				{
-					// The process is dead. Recover the file and move it to interrupted.
-					// Inside dir there is the renamed file (original name) or "raw"
-
-					// The original job ID is the part before the PID (e.g., fle-uuid-name)
-					string originalIdFull = dirName[0 .. lastDot];
-
-					if (keepPolicy & KeepPolicy.INTERRUPTED)
-					{
-						// Look for the file inside
-						auto entries = dirEntries(dir, SpanMode.shallow);
-						foreach(entry; entries)
-						{
-							// Move to interrupted using the original name (without PID)
-							try
-							{
-								moveFile(entry.name, buildNormalizedPath(baseDir, "interrupted", originalIdFull));
-							}
-							catch (Exception e) {}
-						}
-					}
-
-					// Remove the processing directory
-					try { rmdirRecurse(dir); } catch (Exception e) {}
-				}
+				else if (isToken(owner)) { isAlive = isOwnerAlive(baseDir, owner); lockFiles = true; }
+				else if (isLegacyPid(owner)) isAlive = isProcessAlive(owner.to!int); // Left by an older version
+				else continue;
 			}
-			catch (Exception e)
+			catch (Exception e) continue;
+
+			if (isAlive) continue;
+
+			// The owner is dead: move the job (the file inside, with its original name or "raw") to interrupted
+			string jobName = dirName[0 .. lastDot];
+
+			if (keepPolicy & KeepPolicy.INTERRUPTED)
 			{
-				// If PID parsing fails or other error, ignore for now
-				continue;
+				try
+				{
+					foreach (entry; dirEntries(dir, SpanMode.shallow))
+						try moveFile(entry.name, buildNormalizedPath(baseDir, "interrupted", jobName), durable);
+						catch (Exception e) {}
+
+					if (durable) syncDir(buildNormalizedPath(baseDir, "interrupted"));
+				}
+				catch (Exception e) {}
 			}
+
+			try { rmdirRecurse(dir); } catch (Exception e) {}
 		}
+
+		// Lock files of owners that died without jobs left
+		if (lockFiles) try
+		{
+			foreach (entry; dirEntries(buildNormalizedPath(baseDir, "owners"), SpanMode.shallow).array)
+				if (entry.baseName != myToken && isToken(entry.baseName))
+					try isOwnerAlive(baseDir, entry.baseName); catch (Exception e) {}
+		}
+		catch (Exception e) {}
 	}
+
 
 	private size_t receiveImpl(bool randomize = true, size_t maxFiles = 0) const
 	{
+		// How our jobs are marked. The token is registered before looking for orphans, so that our own
+		// jobs are never taken for someone else's.
+		string myOwner = crashDetection == CrashDetection.LOCK_FILE ? ownerToken(baseDir) : thisProcessID.to!string;
+
 		// Before processing new files, check for orphan files and expired delays
 		recoverStalledJobs();
 		promoteScheduled();
@@ -830,7 +1114,6 @@ class Pacchettino
 		else files.sort!((a, b) => a.baseName[4..$] < b.baseName[4..$]);
 
 		size_t processed = 0;
-		int myPid = thisProcessID;
 
 		foreach (file; files)
 		{
@@ -852,8 +1135,8 @@ class Pacchettino
 				name = parts[6..$].join("-");
 			}
 
-			// Unique directory name with PID: id.PID
-			string processingDirName = id ~ "." ~ myPid.to!string;
+			// Unique directory name with the owner: id.pid or id.token
+			string processingDirName = id ~ "." ~ myOwner;
 			string processingDirPath = buildNormalizedPath(baseDir, "processing", processingDirName);
 			string path = buildNormalizedPath(processingDirPath, name);
 
@@ -908,13 +1191,19 @@ class Pacchettino
 			}
 
 			try {
-				if (result == Result.FAILED && (keepPolicy & KeepPolicy.FAILED)) moveFile(path, buildNormalizedPath(baseDir, "failed", id));
-				else if (result == Result.SUCCESS && (keepPolicy & KeepPolicy.SUCCESS)) moveFile(path, buildNormalizedPath(baseDir, "success", id));
-				else if (result == Result.RETRY) moveFile(path, enqueuePath(id, retryDelay));
+				if (result == Result.FAILED && (keepPolicy & KeepPolicy.FAILED)) commitMove(path, buildNormalizedPath(baseDir, "failed", id));
+				else if (result == Result.SUCCESS && (keepPolicy & KeepPolicy.SUCCESS)) commitMove(path, buildNormalizedPath(baseDir, "success", id));
+				else if (result == Result.RETRY) commitMove(path, enqueuePath(id, retryDelay));
 			}
 			catch (Exception e) { warning("Pacchettino rename error: ", e.msg); }
 
-			try { rmdirRecurse(processingDirPath); }
+			try
+			{
+				rmdirRecurse(processingDirPath);
+
+				// A job not kept must not come back after a power cut
+				if (durable) syncDir(buildNormalizedPath(baseDir, "processing"));
+			}
 			catch (Exception e) { warning("Pacchettino cleanup error: ", e.msg); }
 		}
 
@@ -944,6 +1233,26 @@ class Pacchettino
 	 * The default callback returns `Result.FAILED`.
 	 */
 	Result delegate(string id, ubyte[] data) onDataReceived;
+
+	/**
+	 * How this consumer marks the jobs it is processing. See `CrashDetection`.
+	 * Jobs marked in either way by other consumers are always recognized.
+	 */
+	CrashDetection crashDetection = CrashDetection.PID;
+
+	/**
+	 * Write to the disk before returning.
+	 *
+	 * By default the jobs are in the filesystem when `sendData` and `sendFile` return, so they
+	 * survive a crash or a kill of the program, and a normal reboot. But the operating system writes
+	 * them to the disk a few seconds later: after a power cut, or a crash of the whole system, the
+	 * last jobs can be lost, or be found empty.
+	 *
+	 * With `durable = true` every job, and every change of state, is flushed to the disk (fsync)
+	 * before returning. It costs much more: a few thousand jobs per second on a SSD instead of tens of
+	 * thousands, much less on SD cards and hard disks. Set it on producers and consumers alike.
+	 */
+	bool durable = false;
 
 	/**
 	 * How long to wait before processing again a job whose callback returned Result.RETRY.
