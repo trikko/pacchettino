@@ -25,6 +25,9 @@ jobs:
       - name: Unit tests
         run: dub test
 
+      - name: Stress test
+        run: dub run --single tests/stress.d
+
   macos:
     name: macOS / ldc-latest
     runs-on: macos-latest
@@ -40,6 +43,9 @@ jobs:
 
       - name: Unit tests
         run: dub test
+
+      - name: Stress test
+        run: dub run --single tests/stress.d
 
   windows:
     name: Windows / ${{ matrix.dc }}
@@ -60,3 +66,6 @@ jobs:
 
       - name: Unit tests
         run: dub test
+
+      - name: Stress test
+        run: dub run --single tests/stress.d
