@@ -413,3 +413,29 @@ unittest
     assert(UUIDv5("www.example.com", UUIDNamespace.DNS) == "2ed6657d-e927-568b-95e1-2665a8aea6a2");
     assert(UUIDv3("www.example.com", UUIDNamespace.DNS) == "5df41881-3aed-3515-88a7-2f4a814cf09e");
 }
+
+unittest
+{
+    // receiveOne with timeout
+    import core.thread : Thread;
+    string baseDir = "/tmp/test-pacchettino-wait";
+    if (exists(baseDir)) rmdirRecurse(baseDir);
+
+    auto p = new Pacchettino(baseDir);
+    p.onDataReceived = (i, data) => Pacchettino.Result.SUCCESS;
+
+    // Empty queue: waits for the timeout
+    auto start = MonoTime.currTime;
+    assert(!p.receiveOne(200.msecs));
+    auto elapsed = MonoTime.currTime - start;
+    assert(elapsed >= 200.msecs && elapsed < 1.seconds);
+
+    // A job sent while waiting is picked up
+    auto t = new Thread({ Thread.sleep(150.msecs); new Pacchettino(baseDir).sendData("late"); }).start();
+    start = MonoTime.currTime;
+    assert(p.receiveOne(5.seconds, true, 20.msecs));
+    assert(MonoTime.currTime - start < 1.seconds);
+    t.join();
+
+    rmdirRecurse(baseDir);
+}

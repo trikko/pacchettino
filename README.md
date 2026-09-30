@@ -61,7 +61,7 @@ This program reads tasks from the queue and processes them.
 ```d
 import pacchettino;
 import std.stdio;
-import core.thread;
+import std.datetime;
 
 void main()
 {
@@ -90,14 +90,15 @@ void main()
 
     while (true)
     {
-        // Process one job if available
-        queue.receiveOne();
-
-        // Sleep briefly to avoid busy-waiting loop
-        Thread.sleep(100.msecs);
+        // Wait up to 5 seconds for a job and process it.
+        // Returns false if no job arrived in time.
+        if (!queue.receiveOne(5.seconds))
+            writeln("Still waiting...");
     }
 }
 ```
+
+`receiveOne()` without a timeout returns immediately (`true` if a job was processed), while `receive()` processes all queued jobs and returns how many.
 
 ## Configuration
 

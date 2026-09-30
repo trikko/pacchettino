@@ -10,7 +10,7 @@ import std.algorithm : startsWith, canFind, sort;
 import std.range 		: walkLength;
 import std.logger 	: warning;
 import std.process  : thisProcessID;
-import std.datetime : Clock, Duration, SysTime;
+import std.datetime : Clock, Duration, SysTime, msecs;
 import core.sync.mutex : Mutex;
 import core.sys.posix.signal : kill;
 import core.stdc.errno : errno, EPERM, EXDEV;
@@ -380,16 +380,52 @@ class Pacchettino
 	 *
 	 * Params:
 	 *   randomize = Whether to process jobs in random order. If false, jobs are processed in the order they were sent.
+	 *
+	 * Returns:
+	 *   The number of processed jobs.
 	 */
-	void receive(bool randomize = true) const { receiveImpl(randomize, 0); }
+	size_t receive(bool randomize = true) const { return receiveImpl(randomize, 0); }
 
 	/**
 	 * Processes a single job from the queue.
 	 *
 	 * Params:
 	 *   randomize = Whether to select a job randomly. If false, the oldest job is selected.
+	 *
+	 * Returns:
+	 *   True if a job was processed, false if the queue was empty.
 	 */
-	void receiveOne(bool randomize = true) const { receiveImpl(randomize, 1); }
+	bool receiveOne(bool randomize = true) const { return receiveImpl(randomize, 1) > 0; }
+
+	/**
+	 * Waits for a job and processes it.
+	 *
+	 * Params:
+	 *   timeout = How long to wait for a job.
+	 *   randomize = Whether to select a job randomly. If false, the oldest job is selected.
+	 *   pollInterval = How often to check the queue while waiting.
+	 *
+	 * Returns:
+	 *   True if a job was processed, false if the timeout expired.
+	 */
+	bool receiveOne(Duration timeout, bool randomize = true, Duration pollInterval = 100.msecs) const
+	{
+		import core.thread : Thread;
+		import std.algorithm : min;
+		import core.time : MonoTime;
+
+		auto deadline = MonoTime.currTime + timeout;
+
+		while (true)
+		{
+			if (receiveOne(randomize)) return true;
+
+			auto left = deadline - MonoTime.currTime;
+			if (left <= Duration.zero) return false;
+
+			Thread.sleep(min(pollInterval, left));
+		}
+	}
 
 	/**
 	 * Checks for stalled jobs in the processing folder belonging to no longer existing processes.
@@ -465,7 +501,7 @@ class Pacchettino
 		}
 	}
 
-	private void receiveImpl(bool randomize = true, size_t maxFiles = 0) const
+	private size_t receiveImpl(bool randomize = true, size_t maxFiles = 0) const
 	{
 		// Before processing new files, check for orphan files
 		recoverStalledJobs();
@@ -561,6 +597,8 @@ class Pacchettino
 			try { rmdirRecurse(processingDirPath); }
 			catch (Exception e) { warning("Pacchettino cleanup error: ", e.msg); }
 		}
+
+		return processed;
 	}
 
 	/**
