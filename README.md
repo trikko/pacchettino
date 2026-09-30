@@ -1,16 +1,52 @@
 # Pacchettino
 
-**Pacchettino** is a simple, robust file-based queue system for the D programming language. It is designed to be **safe for concurrent use across multiple threads and processes** simultaneously.
+[![CI](https://github.com/trikko/pacchettino/actions/workflows/ci.yml/badge.svg)](https://github.com/trikko/pacchettino/actions/workflows/ci.yml)
+[![DUB](https://img.shields.io/dub/v/pacchettino)](https://code.dlang.org/packages/pacchettino)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-It uses atomic file operations (renames) and PID tracking to ensure jobs are processed exactly once and to recover gracefully from crashed consumer processes.
+**Pacchettino** is a job queue for the D programming language made of plain
+directories: one program sends jobs, another one (or many, in other processes
+or threads) processes them. Jobs are files on disk, so they survive crashes and
+reboots. No server, no database, no dependencies.
+
+## Why
+
+A program often has to do something slow or unreliable that it should not wait
+for: upload a video to a server, send an email, resize a photo, call an API
+that is sometimes down. Doing it on the spot blocks the program, and if the
+network fails or the process crashes halfway, the work is simply lost.
+
+The usual answer is a message broker (Redis, RabbitMQ, a table in a database
+used as a queue): one more service to install, configure and keep running,
+often for a single machine and a few jobs a minute. Pacchettino is the small
+version of that answer, on the filesystem you already have:
+
+- the program that has the work **hands it over and moves on**: `sendFile` or
+  `sendData` return as soon as the job is safely on disk;
+- a **worker**, a separate program or a thread, picks the jobs up and processes
+  them; add more workers to go faster, each job goes to one of them only;
+- if a job fails it is kept in `failed/`, if it should be **tried again later**
+  the worker says so (`RETRY`, with a delay if you want), if a worker **crashes**
+  mid-job the job is found and moved to `interrupted/`, ready to be requeued;
+- the state of every job is **visible**: `queue.status(id)` in code, or just
+  `ls` on the directories.
+
+Typical uses: a kiosk or photo booth that uploads its videos when the network
+is there, a web server that hands long tasks to a background worker, a script
+that feeds jobs to another program, anything that should keep working after a
+power cut.
+
+It is not meant for queues shared between machines, or for millions of jobs per
+second: there, use a real broker.
 
 ## Features
 
-- **Multi-process & Multi-thread safe**: Multiple producers and consumers can operate on the same directory without race conditions.
+- **Multi-process & Multi-thread safe**: Multiple producers and consumers can operate on the same directory without race conditions; each job is given to one consumer only.
 - **Persistence**: Jobs are stored as files on disk.
 - **Crash Recovery**: Automatically detects stalled jobs from dead processes and moves them to an `interrupted` state (or cleans them up based on policy).
 - **Flexible Retention**: Configure which jobs to keep after processing (Success, Failed, Interrupted) using bitwise flags.
 - **Simple API**: Easy methods to send data/files and define handlers for receiving them.
+- **Status tracking**: `status(id)`, counters, requeue of failed and interrupted jobs, cleanup of old ones.
 - **Delayed jobs and retries**: Send jobs with a delay, or wait before retrying.
 - **FIFO or random order**: `receive(false)` / `receiveOne(false)` process jobs in the order they were sent.
 
