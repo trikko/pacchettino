@@ -1,6 +1,6 @@
 # pacchettino: file-based job queue for D — full reference
 
-pacchettino is a job queue for the D programming language made of plain directories on disk. Producers add jobs (some bytes, or a file), consumers in other processes or threads process them. No server, no database, no dependencies. POSIX only (Linux, macOS, BSD). MIT license. `import pacchettino;` for the queue, `import pacchettino.uuid;` for the UUID functions.
+pacchettino is a job queue for the D programming language made of plain directories on disk. Producers add jobs (some bytes, or a file), consumers in other processes or threads process them. No server, no database, no dependencies. Linux, macOS, BSD and Windows. MIT license. `import pacchettino;` for the queue, `import pacchettino.uuid;` for the UUID functions.
 
 This file documents the `main` branch; see "Versions" at the end for what the last release (1.0.3) lacks.
 
@@ -72,7 +72,7 @@ bool   receiveOne(Duration timeout, bool randomize = true, Duration pollInterval
 
 - Set both callbacks if both kinds of job can arrive: the defaults return `Result.FAILED`.
 - `onDataReceived(id, data)`: `id` is `"raw-<uuid>"`, `data` the bytes sent.
-- `onFileReceived(id, name, path)`: `id` is `"fle-<uuid>-<name>"`, `name` the original file name, `path` where the file is now (inside `processing/`). Read it or copy it; do not move or delete it: pacchettino moves or deletes it according to the result.
+- `onFileReceived(id, name, path)`: `id` is `"fle-<uuid>-<name>"`, `name` the original file name, `path` where the file is now (inside `processing/`). Read it or copy it; do not move or delete it: pacchettino moves or deletes it according to the result. Close it before returning: Windows cannot move an open file. On Windows, when the path is longer than `MAX_PATH` it starts with `\\?\`: `std.file` accepts it, some external programs do not.
 - The callbacks run inside `receive*`, in the calling thread, one job at a time. There is no background thread: nothing is processed, promoted from `scheduled/` or recovered from a crash except inside a `receive*` call.
 - `receive()` processes every job currently queued and returns how many. `receiveOne()` processes at most one and returns `true` if it did. `receiveOne(timeout)` waits for a job up to `timeout`, checking every `pollInterval`, and returns `false` if none arrived: it is the loop of a consumer.
 - `randomize`: random order by default (many consumers do not compete for the same job); `false` processes the oldest job first (FIFO).
@@ -231,10 +231,10 @@ enum UUIDNamespace : ubyte[16] { DNS, URL, OID, X500 }
 ## Limits
 
 - One machine, local filesystem.
-- POSIX only (Linux, macOS, BSD): no Windows.
+- On Windows, antivirus and indexers keep new files open for a moment: pacchettino retries the moves for a short while, but a file kept open for longer (by the callback, or by another program) makes the move fail.
 - No priorities (use two directories), no attempt limit, no job dependencies, no scheduling at a date (only a delay from now), no notifications: consumers poll.
 - File names up to 200 bytes (the filesystem allows 255 per name; pacchettino adds its prefixes).
 
 ## Versions
 
-The last release is 1.0.3. It has the constructor, `KeepPolicy`, `Result`, `sendData`/`sendFile` without `delay`, `receive`/`receiveOne` returning `void`, `onDataReceived`/`onFileReceived`, and `isQueued`, `isProcessing`, `isSuccess`, `isFailed`, `isInterrupted` (accepting only the id returned by `send*`), with jobs taken in directory order when `randomize` is false. Everything else in this file is newer.
+The last release is 1.0.3. It has the constructor, `KeepPolicy`, `Result`, `sendData`/`sendFile` without `delay`, `receive`/`receiveOne` returning `void`, `onDataReceived`/`onFileReceived`, and `isQueued`, `isProcessing`, `isSuccess`, `isFailed`, `isInterrupted` (accepting only the id returned by `send*`), with jobs taken in directory order when `randomize` is false, and does not build on Windows. Everything else in this file is newer.

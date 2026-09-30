@@ -53,7 +53,7 @@ second: there, use a real broker.
 - **Delayed jobs and retries**: Send jobs with a delay, or wait before retrying.
 - **FIFO or random order**: `receive(false)` / `receiveOne(false)` process jobs in the order they were sent.
 
-> **Note:** Pacchettino relies on POSIX APIs (`kill`) for crash recovery: it runs on Linux, macOS and BSD, but not on Windows.
+> **Note:** Pacchettino runs on Linux, macOS, BSD and Windows, on a local filesystem of a single machine.
 
 ## Usage Example
 

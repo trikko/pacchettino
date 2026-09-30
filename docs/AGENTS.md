@@ -2,8 +2,8 @@
 
 pacchettino is a job queue for the D programming language made of plain
 directories on disk: producers add jobs, consumers (in other processes or
-threads) process them. No server, no database, no dependencies. POSIX only
-(Linux, macOS, BSD).
+threads) process them. No server, no database, no dependencies. Linux, macOS,
+BSD and Windows.
 
 Read the reference before writing pacchettino code. It is two files:
 
@@ -92,7 +92,9 @@ void consumer()
 7. **Do not move or delete the file in `onFileReceived`.** Read it, or copy it.
    pacchettino moves it afterwards to `success/`, `failed/` or back to the
    queue, or deletes it, according to the result. `name` is the original file
-   name, `path` where it is now.
+   name, `path` where it is now. Close the file before returning: Windows
+   cannot move an open file. On Windows a long `path` starts with `\\?\`: fine
+   for `std.file`, but not every external program accepts it.
 8. **`sendFile` copies by default.** `sendFile(path, false)` moves the file
    instead (also across filesystems). Names longer than 200 bytes are refused.
    `sendData` loads the whole payload in memory on the consumer side: for big
@@ -126,7 +128,7 @@ void consumer()
 
 No priorities, no attempt limit, no job dependencies, no scheduling by date
 (only a delay), no notifications or inotify, no network or multi-machine
-queue, no Windows. Do not invent these: say they are missing, or build them on
+queue. Do not invent these: say they are missing, or build them on
 top (a priority can be a second queue directory).
 
 ## If the project uses another version
@@ -135,6 +137,6 @@ This file documents the `main` branch. The last release, 1.0.3, has only the
 constructor, `sendData`/`sendFile` without delay, `receive`/`receiveOne`
 returning `void`, the callbacks and the `is*` methods. `status`, `sentAt`,
 `requeue`, `requeueAll`, `cleanup`, the `count*` methods, delays, `retryDelay`,
-`isScheduled`, `receiveOne(timeout)` and FIFO order came after. If
+`isScheduled`, `receiveOne(timeout)`, FIFO order and Windows support came after. If
 `dub.selections.json` pins an older pacchettino, check the signatures against
 the source in `source/pacchettino/package.d`.

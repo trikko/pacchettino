@@ -1,6 +1,6 @@
 # pacchettino: file-based job queue for D
 
-pacchettino is a job queue for the D programming language made of plain directories on disk. Producers add jobs (some bytes, or a file), consumers in other processes or threads process them. Jobs are on disk before `send*` returns, each job goes to one consumer only, and jobs left half done by a crashed process are detected. No server, no database, no dependencies. POSIX only (Linux, macOS, BSD). MIT license.
+pacchettino is a job queue for the D programming language made of plain directories on disk. Producers add jobs (some bytes, or a file), consumers in other processes or threads process them. Jobs are on disk before `send*` returns, each job goes to one consumer only, and jobs left half done by a crashed process are detected. No server, no database, no dependencies. Linux, macOS, BSD and Windows. MIT license.
 
 - Full reference: https://trikko.github.io/pacchettino/llms-full.txt
 - Rules for agents: https://trikko.github.io/pacchettino/AGENTS.md (as a skill: https://trikko.github.io/pacchettino/SKILL.md)
@@ -45,4 +45,4 @@ while (true)
 
 ## Limits
 
-One machine only (crash detection uses local PIDs: no NFS or shared folders). No priorities, no attempt limit, no notifications (consumers poll), no Windows. File names up to 200 bytes.
+One machine only (crash detection uses local PIDs: no NFS or shared folders). No priorities, no attempt limit, no notifications (consumers poll). File names up to 200 bytes.

@@ -33,7 +33,7 @@
  *   $(LI `Pacchettino.KeepPolicy` — which processed jobs stay on disk.)
  * )
  *
- * Works on POSIX systems (Linux, macOS, BSD).
+ * Works on Linux, macOS, BSD and Windows.
  *
  * See_Also:
  *   $(LINK2 https://github.com/trikko/pacchettino, the README) for a guided tour,
