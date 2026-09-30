@@ -23,6 +23,9 @@
 <url><loc>https://trikko.github.io/pacchettino/pacchettino/Pacchettino.countQueued.html</loc></url>
 <url><loc>https://trikko.github.io/pacchettino/pacchettino/Pacchettino.countScheduled.html</loc></url>
 <url><loc>https://trikko.github.io/pacchettino/pacchettino/Pacchettino.countSuccessful.html</loc></url>
+<url><loc>https://trikko.github.io/pacchettino/pacchettino/Pacchettino.CrashDetection.html</loc></url>
+<url><loc>https://trikko.github.io/pacchettino/pacchettino/Pacchettino.crashDetection.html</loc></url>
+<url><loc>https://trikko.github.io/pacchettino/pacchettino/Pacchettino.durable.html</loc></url>
 <url><loc>https://trikko.github.io/pacchettino/pacchettino/Pacchettino.isFailed.html</loc></url>
 <url><loc>https://trikko.github.io/pacchettino/pacchettino/Pacchettino.isInterrupted.html</loc></url>
 <url><loc>https://trikko.github.io/pacchettino/pacchettino/Pacchettino.isProcessing.html</loc></url>

@@ -116,13 +116,20 @@ void consumer()
     call `cleanup(which, olderThan)` periodically. `isSuccess`, `isFailed`,
     `isInterrupted`, `countSuccessful`, `countFailed` and `countInterrupted`
     throw if the policy does not keep that state; `status(id)` never throws.
-13. **One machine only.** Crash detection uses the PIDs of local processes: do
+13. **One machine only.** Crash detection uses local PIDs, or lock files: do
     not share the directory between machines (NFS, SMB, synced folders). Use a
     local filesystem.
+    **Consumers in different containers** on the same directory must all set
+    `queue.crashDetection = Pacchettino.CrashDetection.LOCK_FILE;`: with the
+    default (`PID`) they take each other's jobs for crashed ones.
 14. **Duration literals need an import.** `5.seconds`, `10.minutes` come from
     `core.time` (or `std.datetime`); `import pacchettino;` does not bring them.
 15. **UUIDs**: `import pacchettino.uuid;` for `UUIDv7()`, `UUIDv4()`,
     `UUIDv5(name, UUIDNamespace.DNS)`, `UUIDv3(...)`; `!ubyte` gives `ubyte[16]`.
+16. **Power cuts need `durable`.** By default a job survives a crash of the
+    program or a reboot, but the last ones can be lost on a power cut.
+    `queue.durable = true;` (on producers and consumers) flushes every write to
+    the disk: much slower (a few thousand jobs/s on SSD), so only when needed.
 
 ## Not in pacchettino
 
@@ -137,6 +144,7 @@ This file documents the `main` branch. The last release, 1.0.3, has only the
 constructor, `sendData`/`sendFile` without delay, `receive`/`receiveOne`
 returning `void`, the callbacks and the `is*` methods. `status`, `sentAt`,
 `requeue`, `requeueAll`, `cleanup`, the `count*` methods, delays, `retryDelay`,
-`isScheduled`, `receiveOne(timeout)`, FIFO order and Windows support came after. If
+`isScheduled`, `receiveOne(timeout)`, FIFO order, Windows support,
+`crashDetection` and `durable` came after. If
 `dub.selections.json` pins an older pacchettino, check the signatures against
 the source in `source/pacchettino/package.d`.

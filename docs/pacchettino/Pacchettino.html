@@ -82,6 +82,21 @@ document.getElementById('symbolSearchPane').style.display = 'block';</script>
 						</tr>
 						<tr>
 							<td>
+								<a href="../pacchettino/Pacchettino.crashDetection.html" class="public"><code>crashDetection</code></a>
+							</td>
+							<td class="typecol"><code class="prettyprint lang-d"><a href="../pacchettino/Pacchettino.CrashDetection.html"><span class="typ">Pacchettino<wbr/></span><span class="pun">.<wbr/></span><span class="typ">CrashDetection</span></a></code></td><td>How this consumer marks the jobs it is processing. See <code class="lang-d"><a href="../pacchettino/Pacchettino.CrashDetection.html"><span class="typ">CrashDetection</span></a></code>.
+ Jobs marked in either way by other consumers are always recognized.
+</td>
+						</tr>
+						<tr>
+							<td>
+								<a href="../pacchettino/Pacchettino.durable.html" class="public"><code>durable</code></a>
+							</td>
+							<td class="typecol"><code class="prettyprint lang-d"><span class="typ">bool</span></code></td><td>Write to the disk before returning.
+</td>
+						</tr>
+						<tr>
+							<td>
 								<a href="../pacchettino/Pacchettino.onDataReceived.html" class="public"><code>onDataReceived</code></a>
 							</td>
 							<td class="typecol"><code class="prettyprint lang-d"><a href="../pacchettino/Pacchettino.Result.html"><span class="typ">Pacchettino<wbr/></span><span class="pun">.<wbr/></span><span class="typ">Result</span></a> <span class="kwd">delegate</span><span class="pun">(</span><span class="typ">string</span><span class="pun">, </span><span class="typ">ubyte</span><span class="pun">[]</span><span class="pun">)</span></code></td><td>Callback triggered when data is received.
@@ -357,6 +372,15 @@ document.getElementById('symbolSearchPane').style.display = 'block';</script>
 						<col class="caption"/>
 						<tr>
 							<th>Name</th><th>Description</th>
+						</tr>
+						<tr>
+							<td>
+								<a href="../pacchettino/Pacchettino.CrashDetection.html" class="public">
+									<code>CrashDetection</code>
+								</a>
+							</td>
+							<td>How consumers tell a crashed consumer from one still working on its job.
+</td>
 						</tr>
 						<tr>
 							<td>

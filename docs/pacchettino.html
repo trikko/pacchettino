@@ -48,10 +48,10 @@ document.getElementById('symbolSearchPane').style.display = 'block';</script>
 			<div>
 				<h1>Module pacchettino</h1><p>A job queue made of plain directories: one program sends jobs, another one
  (or many, in other processes or threads) processes them.
-</p><section><p>A job is either some bytes (<code class="lang-d"><span class="pln">sendData</span></code>) or a file (<code class="lang-d"><span class="pln">sendFile</span></code>). It is written
- to disk before <code class="lang-d"><span class="pln">send</span><span class="pun">*</span></code> returns, so nothing is lost if a program stops or
- crashes, and a job left half done by a process that died is detected and
- moved to <code class="lang-d"><span class="pln">interrupted</span><span class="pun">/</span></code>. Each job is given to one consumer only, even with
+</p><section><p>A job is either some bytes (<code class="lang-d"><span class="pln">sendData</span></code>) or a file (<code class="lang-d"><span class="pln">sendFile</span></code>). It is in the
+ filesystem before <code class="lang-d"><span class="pln">send</span><span class="pun">*</span></code> returns, so nothing is lost if a program stops or
+ crashes (set <code class="lang-d"><a href="./pacchettino/Pacchettino.durable.html"><span class="typ">Pacchettino<wbr/></span><span class="pun">.</span><span class="pln">durable</span></a></code> to survive power cuts too), and a job left
+ half done by a process that died is detected and moved to <code class="lang-d"><span class="pln">interrupted</span><span class="pun">/</span></code>. Each job is given to one consumer only, even with
  many consumers on the same directory. No server, no database, no dependencies.
 </p>
 </section>
@@ -74,7 +74,8 @@ document.getElementById('symbolSearchPane').style.display = 'block';</script>
  <ul>   <li><code class="lang-d"><a href="./pacchettino/Pacchettino.sendData.html"><span class="typ">Pacchettino<wbr/></span><span class="pun">.</span><span class="pln">sendData</span></a></code> and <code class="lang-d"><a href="./pacchettino/Pacchettino.sendFile.html"><span class="typ">Pacchettino<wbr/></span><span class="pun">.</span><span class="pln">sendFile</span></a></code> — adding jobs, now or with a delay;</li>
    <li><code class="lang-d"><a href="./pacchettino/Pacchettino.onDataReceived.html"><span class="typ">Pacchettino<wbr/></span><span class="pun">.</span><span class="pln">onDataReceived</span></a></code>, <code class="lang-d"><a href="./pacchettino/Pacchettino.onFileReceived.html"><span class="typ">Pacchettino<wbr/></span><span class="pun">.</span><span class="pln">onFileReceived</span></a></code> and <code class="lang-d"><a href="./pacchettino/Pacchettino.receiveOne.html"><span class="typ">Pacchettino<wbr/></span><span class="pun">.</span><span class="pln">receiveOne</span></a></code> — processing them;</li>
    <li><code class="lang-d"><a href="./pacchettino/Pacchettino.status.html"><span class="typ">Pacchettino<wbr/></span><span class="pun">.</span><span class="pln">status</span></a></code>, <code class="lang-d"><a href="./pacchettino/Pacchettino.requeue.html"><span class="typ">Pacchettino<wbr/></span><span class="pun">.</span><span class="pln">requeue</span></a></code> and <code class="lang-d"><a href="./pacchettino/Pacchettino.cleanup.html"><span class="typ">Pacchettino<wbr/></span><span class="pun">.</span><span class="pln">cleanup</span></a></code> — following and managing them;</li>
-   <li><code class="lang-d"><a href="./pacchettino/Pacchettino.KeepPolicy.html"><span class="typ">Pacchettino<wbr/></span><span class="pun">.</span><span class="typ">KeepPolicy</span></a></code> — which processed jobs stay on disk.</li>
+   <li><code class="lang-d"><a href="./pacchettino/Pacchettino.KeepPolicy.html"><span class="typ">Pacchettino<wbr/></span><span class="pun">.</span><span class="typ">KeepPolicy</span></a></code> — which processed jobs stay on disk;</li>
+   <li><code class="lang-d"><a href="./pacchettino/Pacchettino.durable.html"><span class="typ">Pacchettino<wbr/></span><span class="pun">.</span><span class="pln">durable</span></a></code> and <code class="lang-d"><a href="./pacchettino/Pacchettino.crashDetection.html"><span class="typ">Pacchettino<wbr/></span><span class="pun">.</span><span class="pln">crashDetection</span></a></code> — for power cuts, and for consumers in containers.</li>
  </ul>
 </p>
 

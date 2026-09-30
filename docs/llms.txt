@@ -16,6 +16,8 @@ pacchettino is a job queue for the D programming language made of plain director
 - **Order**: random by default, FIFO with `randomize = false`.
 - **Crash recovery**: jobs of a dead consumer are moved to `interrupted/` by the next `receive*`; `requeueAll()` tries them again.
 - **Status**: `status(id)` → `Status.SCHEDULED/QUEUED/PROCESSING/SUCCESS/FAILED/INTERRUPTED/UNKNOWN`; `sentAt(id)`; `is*` and `count*` methods.
+- **crashDetection**: `PID` (default) or `LOCK_FILE`, needed when consumers run in different containers on the same directory.
+- **durable**: `queue.durable = true` flushes every write to the disk (fsync), so jobs survive power cuts too; much slower.
 - **KeepPolicy**: `NONE`, `SUCCESS`, `FAILED`, `INTERRUPTED`, `ALL` (combine with `|`): which processed jobs stay on disk. `cleanup(which, olderThan)` removes them.
 
 ## Installation & Basic Usage
@@ -45,4 +47,4 @@ while (true)
 
 ## Limits
 
-One machine only (crash detection uses local PIDs: no NFS or shared folders). No priorities, no attempt limit, no notifications (consumers poll). File names up to 200 bytes.
+One machine only (crash detection uses local PIDs or lock files: no NFS or shared folders). No priorities, no attempt limit, no notifications (consumers poll). File names up to 200 bytes.

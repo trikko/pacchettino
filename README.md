@@ -36,8 +36,8 @@ version of that answer, on the filesystem you already have:
 
 Typical uses: a kiosk or photo booth that uploads its videos when the network
 is there, a web server that hands long tasks to a background worker, a script
-that feeds jobs to another program, anything that should keep working after a
-power cut.
+that feeds jobs to another program, anything that should pick up where it left
+after a restart.
 
 It is not meant for queues shared between machines, or for millions of jobs per
 second: there, use a real broker.
@@ -173,6 +173,41 @@ queue.cleanup(Pacchettino.KeepPolicy.SUCCESS, 7.days);
 queue.cleanup();
 ```
 
+### Power cuts: `durable`
+
+A job is in the filesystem when `sendData`/`sendFile` return: it survives a
+crash or a kill of the program, and a normal reboot. But the operating system
+writes it to the disk a few seconds later, so after a **power cut** (or a crash
+of the whole system) the last jobs can be lost, or be found empty.
+
+If that matters, set `durable` on producers and consumers: every job, and every
+change of state, is then flushed to the disk (`fsync`) before returning.
+
+```d
+queue.durable = true;
+```
+
+It costs much more: on a SSD a few thousand jobs per second instead of tens of
+thousands, and much less on SD cards and hard disks.
+
+### Consumers in containers: `crashDetection`
+
+A job being processed is marked with the PID of its consumer, and a job whose
+PID is gone is moved to `interrupted/`. That is fast, but PIDs only make sense
+inside one PID namespace: consumers in **different containers** (Docker, ...)
+sharing the same directory would take each other's jobs for crashed ones.
+
+There, set on all the consumers:
+
+```d
+queue.crashDetection = Pacchettino.CrashDetection.LOCK_FILE;
+```
+
+Each consumer process then holds a lock file in `owners/` while it is alive,
+and the operating system releases it when the process dies, whatever the PID.
+It is a little slower: one more file to open for each job being processed by
+another consumer. Producers do not need it.
+
 ### Retrying jobs
 
 Failed and interrupted jobs can be moved back to the queue:
@@ -214,6 +249,7 @@ Pacchettino creates the following structure inside your base directory:
 - `failed/`: Jobs that returned `Result.FAILED`.
 - `interrupted/`: Jobs recovered from crashed processes.
 - `tmp/`: Temporary staging area for atomic writes.
+- `owners/`: Lock files of the consumers, with `CrashDetection.LOCK_FILE` only.
 
 ## Using pacchettino with an AI agent
 

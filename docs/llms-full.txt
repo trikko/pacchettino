@@ -14,11 +14,11 @@ This file documents the `main` branch; see "Versions" at the end for what the la
 
 ## Guarantees
 
-- A job is on disk before `sendData`/`sendFile` returns: it survives the producer stopping, the consumer stopping, a reboot.
+- A job is in the filesystem before `sendData`/`sendFile` returns: it survives the producer or the consumer stopping or crashing, and a normal reboot. After a power cut, or a crash of the whole system, the last jobs can be lost or empty, unless `durable` is set (see "Durability").
 - A job never appears half written: it is written in `tmp/` and moved into the queue with an atomic rename.
 - Each job is given to one consumer only, even with many consumer processes and threads on the same directory.
 - If a consumer dies while processing a job, the next `receive*` of any consumer on the same directory moves that job to `interrupted/`. It is not processed again automatically: the callback may have done part of the work. `requeue`/`requeueAll` try it again.
-- The same machine only: crash detection checks if the PID that took the job is still alive. Do not share the directory over NFS, SMB or a synced folder.
+- The same machine only: crash detection checks if the consumer that took the job is still alive, by PID or by lock file (see "Crash detection"). Do not share the directory over NFS, SMB or a synced folder.
 
 ## Pacchettino
 
@@ -139,6 +139,25 @@ queue.requeueAll(Pacchettino.KeepPolicy.INTERRUPTED);      // after a crash
 queue.cleanup(Pacchettino.KeepPolicy.SUCCESS, 7.days);     // keep one week of history
 ```
 
+## Crash detection
+
+```d
+enum CrashDetection { PID, LOCK_FILE }
+CrashDetection crashDetection = CrashDetection.PID;
+```
+
+- `PID` (default): a job being processed is `processing/<job>.<pid>`; if that process does not exist, the job is moved to `interrupted/`. Fast, but only valid inside one PID namespace.
+- `LOCK_FILE`: each consumer process holds a lock on `owners/<token>` while alive (`flock`, or a file open without sharing on Windows); its jobs are `processing/<job>.<token>`. The operating system releases the lock when the process dies. Needed when consumers run in **different containers** on the same directory: set it on all of them, otherwise they take each other's jobs for crashed ones. Slightly slower: one file open per job processed by others.
+- Jobs marked in either way are always recognized by every consumer. Producers do not need the setting.
+
+## Durability
+
+```d
+bool durable = false;
+```
+
+With `durable = true`, `sendData`/`sendFile` return only after the job is flushed to the disk (fsync of the file and of its directory; `F_FULLFSYNC` on macOS; `FlushFileBuffers` and write-through moves on Windows), and every change of state is flushed too. Much slower: a few thousand jobs per second on a SSD instead of tens of thousands, much less on SD cards and hard disks. Set it on producers and consumers.
+
 ## Directory layout
 
 ```
@@ -150,6 +169,7 @@ baseDir/
   failed/       jobs that returned FAILED (if kept)
   interrupted/  jobs of consumers that died (if kept)
   tmp/          files being written
+  owners/       lock files of the consumers (CrashDetection.LOCK_FILE only)
 ```
 
 The files are the jobs: a `raw-` file contains the bytes, a `fle-` file is the file. They can be inspected with `ls`; do not write into these directories by hand, use `send*`.
@@ -237,4 +257,4 @@ enum UUIDNamespace : ubyte[16] { DNS, URL, OID, X500 }
 
 ## Versions
 
-The last release is 1.0.3. It has the constructor, `KeepPolicy`, `Result`, `sendData`/`sendFile` without `delay`, `receive`/`receiveOne` returning `void`, `onDataReceived`/`onFileReceived`, and `isQueued`, `isProcessing`, `isSuccess`, `isFailed`, `isInterrupted` (accepting only the id returned by `send*`), with jobs taken in directory order when `randomize` is false, and does not build on Windows. Everything else in this file is newer.
+The last release is 1.0.3. It has the constructor, `KeepPolicy`, `Result`, `sendData`/`sendFile` without `delay`, `receive`/`receiveOne` returning `void`, `onDataReceived`/`onFileReceived`, and `isQueued`, `isProcessing`, `isSuccess`, `isFailed`, `isInterrupted` (accepting only the id returned by `send*`), with jobs taken in directory order when `randomize` is false, does not build on Windows, and has no `crashDetection` nor `durable`. Everything else in this file is newer.
