@@ -130,6 +130,16 @@ queue.cleanup(Pacchettino.KeepPolicy.SUCCESS, 7.days);
 queue.cleanup();
 ```
 
+### Retrying jobs
+
+Failed and interrupted jobs can be moved back to the queue:
+
+```d
+queue.requeue(id);   // A single job
+queue.requeueAll();  // All failed and interrupted jobs
+queue.requeueAll(Pacchettino.KeepPolicy.INTERRUPTED); // Only interrupted jobs
+```
+
 ### Counters
 
 `countQueued`, `countProcessing`, `countSuccessful`, `countFailed`, `countInterrupted` and `countAll` return the number of jobs in each state.

@@ -6,7 +6,7 @@ import std.random 	: randomShuffle;
 import std.string 	: representation, split, join, lastIndexOf;
 import std.conv 		: to;
 import std.array 		: array;
-import std.algorithm : startsWith, canFind, sort;
+import std.algorithm : startsWith, sort;
 import std.range 		: walkLength;
 import std.logger 	: warning;
 import std.process  : thisProcessID;
@@ -169,11 +169,27 @@ class Pacchettino
 		return id;
 	}
 
-	private bool isInDirectory(string id, string directory) const
+	// Accepts both the id returned by send* and the one passed to callbacks ("raw-<id>" or "fle-<id>-<name>")
+	private static string jobKey(string id)
 	{
-		if (id.length == 0) return false;
-		return dirEntries(buildNormalizedPath(baseDir, directory), SpanMode.shallow).canFind!(f => f.baseName.length > 4 && (f.baseName.startsWith("fle-") || f.baseName.startsWith("raw-")) && f.baseName[4..$].startsWith(id));
+		if (id.length > 4 && (id.startsWith("fle-") || id.startsWith("raw-"))) return id[4..$];
+		return id;
 	}
+
+	// Returns the path of the job in the directory, or null if not found
+	private string findJob(string id, string directory) const
+	{
+		string key = jobKey(id);
+		if (key.length == 0) return null;
+
+		foreach (f; dirEntries(buildNormalizedPath(baseDir, directory), "{fle,raw}-*", SpanMode.shallow))
+			if (f.baseName.length > 4 && f.baseName[4..$].startsWith(key))
+				return f.name;
+
+		return null;
+	}
+
+	private bool isInDirectory(string id, string directory) const => findJob(id, directory) !is null;
 
 	private size_t countIn(string directory) const
 	{
@@ -338,6 +354,56 @@ class Pacchettino
 		if (keepPolicy & KeepPolicy.INTERRUPTED) total += countInterrupted();
 
 		return total;
+	}
+
+	/**
+	 * Moves a failed, interrupted or successful job back to the queue.
+	 *
+	 * Params:
+	 *   id = The job ID.
+	 *
+	 * Returns:
+	 *   True if the job was found and queued again, false otherwise.
+	 */
+	bool requeue(string id) const
+	{
+		foreach (dir; ["failed", "interrupted", "success"])
+		{
+			string path = findJob(id, dir);
+			if (path is null) continue;
+
+			try { rename(path, buildNormalizedPath(baseDir, "queued", path.baseName)); return true; }
+			catch (Exception e) {} // Moved by someone else in the meanwhile
+		}
+
+		return false;
+	}
+
+	/**
+	 * Moves all jobs in the given directories back to the queue.
+	 *
+	 * Params:
+	 *   which = Which directories to requeue from (e.g. KeepPolicy.FAILED | KeepPolicy.INTERRUPTED).
+	 *
+	 * Returns:
+	 *   The number of queued jobs.
+	 */
+	size_t requeueAll(KeepPolicy which = KeepPolicy.FAILED | KeepPolicy.INTERRUPTED) const
+	{
+		size_t moved = 0;
+
+		foreach (flag, dir; [KeepPolicy.SUCCESS : "success", KeepPolicy.FAILED : "failed", KeepPolicy.INTERRUPTED : "interrupted"])
+		{
+			if (!(which & flag)) continue;
+
+			foreach (entry; dirEntries(buildNormalizedPath(baseDir, dir), "{fle,raw}-*", SpanMode.shallow).array)
+			{
+				try { rename(entry.name, buildNormalizedPath(baseDir, "queued", entry.baseName)); moved++; }
+				catch (Exception e) {} // Moved by someone else in the meanwhile
+			}
+		}
+
+		return moved;
 	}
 
 	/**

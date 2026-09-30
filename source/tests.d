@@ -416,6 +416,39 @@ unittest
 
 unittest
 {
+    // requeueAll
+    string baseDir = "/tmp/test-pacchettino-requeue-all";
+    if (exists(baseDir)) rmdirRecurse(baseDir);
+
+    auto p = new Pacchettino(baseDir);
+
+    std.file.write(buildNormalizedPath(baseDir, "doc.txt"), "x");
+    p.sendFile(buildNormalizedPath(baseDir, "doc.txt"));
+    p.sendData("a");
+    p.sendData("b");
+
+    p.onDataReceived = (i, data) => data == "a" ? Pacchettino.Result.SUCCESS : Pacchettino.Result.FAILED;
+    p.onFileReceived = (i, name, path) => Pacchettino.Result.FAILED;
+    assert(p.receive() == 3);
+
+    assert(p.requeueAll() == 2);
+    assert(p.countQueued() == 2 && p.countFailed() == 0 && p.countSuccessful() == 1);
+
+    // The requeued file job keeps its original name
+    string name;
+    p.onFileReceived = (i, n, path) { name = n; return Pacchettino.Result.SUCCESS; };
+    p.onDataReceived = (i, data) => Pacchettino.Result.SUCCESS;
+    assert(p.receive() == 2);
+    assert(name == "doc.txt");
+
+    assert(p.requeueAll(Pacchettino.KeepPolicy.SUCCESS) == 3);
+    assert(p.countQueued() == 3);
+
+    rmdirRecurse(baseDir);
+}
+
+unittest
+{
     // receiveOne with timeout
     import core.thread : Thread;
     string baseDir = "/tmp/test-pacchettino-wait";
