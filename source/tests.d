@@ -333,7 +333,18 @@ unittest
     assert(p.countQueued() == 0);
     assert(dirEntries(buildNormalizedPath(baseDir, "tmp"), SpanMode.shallow).empty);
 
-    // The longest allowed name is queued and processed
+    // Just over the limit
+    string overFile = buildNormalizedPath(baseDir, 'c'.repeat(201).array.to!string);
+    std.file.write(overFile, "x");
+    try { p.sendFile(overFile); assert(false, "Should have thrown Exception"); }
+    catch (Exception e) { assert(e.msg.startsWith("File name too long"), e.msg); }
+
+    // The longest allowed name is queued and processed, even when delayed
+    string delayedFile = buildNormalizedPath(baseDir, 'd'.repeat(200).array.to!string);
+    std.file.write(delayedFile, "x");
+    auto delayedId = p.sendFile(delayedFile, true, 1.msecs);
+    assert(p.isScheduled(delayedId));
+
     string okFile = buildNormalizedPath(baseDir, 'b'.repeat(200).array.to!string);
     std.file.write(okFile, "x");
     auto id = p.sendFile(okFile);
@@ -524,6 +535,87 @@ unittest
     assert(p.receiveOne(5.seconds, true, 20.msecs));
     assert(MonoTime.currTime - start < 1.seconds);
     t.join();
+
+    rmdirRecurse(baseDir);
+}
+
+unittest
+{
+    // Delayed jobs
+    import core.thread : Thread;
+
+    string baseDir = "/tmp/test-pacchettino-delay";
+    if (exists(baseDir)) rmdirRecurse(baseDir);
+
+    auto p = new Pacchettino(baseDir);
+    p.onDataReceived = (i, data) => Pacchettino.Result.SUCCESS;
+
+    auto late = p.sendData("late", 400.msecs);
+    auto soon = p.sendData("soon", 150.msecs);
+    auto now = p.sendData("now");
+
+    assert(p.status(late) == Pacchettino.Status.SCHEDULED);
+    assert(p.isScheduled(soon));
+    assert(p.countScheduled() == 2);
+    assert(p.countAll() == 3);
+
+    // Only the job without delay is ready
+    assert(p.receive() == 1);
+    assert(p.isSuccess(now));
+
+    // The shortest delay expires first
+    assert(p.receiveOne(2.seconds, true, 20.msecs));
+    assert(p.isSuccess(soon) && p.isScheduled(late));
+
+    Thread.sleep(300.msecs);
+    assert(p.receive() == 1);
+    assert(p.isSuccess(late));
+    assert(p.countScheduled() == 0);
+
+    // Delayed files keep their name
+    std.file.write(buildNormalizedPath(baseDir, "doc.txt"), "x");
+    auto fileId = p.sendFile(buildNormalizedPath(baseDir, "doc.txt"), true, 50.msecs);
+    assert(p.status(fileId) == Pacchettino.Status.SCHEDULED);
+
+    string name;
+    p.onFileReceived = (i, n, path) { name = n; return Pacchettino.Result.SUCCESS; };
+    assert(p.receiveOne(2.seconds, true, 20.msecs));
+    assert(name == "doc.txt");
+
+    rmdirRecurse(baseDir);
+}
+
+unittest
+{
+    // retryDelay
+    import core.thread : Thread;
+
+    string baseDir = "/tmp/test-pacchettino-retry-delay";
+    if (exists(baseDir)) rmdirRecurse(baseDir);
+
+    auto p = new Pacchettino(baseDir);
+    p.retryDelay = 200.msecs;
+
+    int attempts = 0;
+    p.onDataReceived = (i, data) => ++attempts < 2 ? Pacchettino.Result.RETRY : Pacchettino.Result.SUCCESS;
+
+    auto id = p.sendData("retry me");
+    assert(p.receive() == 1);
+    assert(p.status(id) == Pacchettino.Status.SCHEDULED);
+
+    // Not ready yet
+    assert(!p.receiveOne());
+
+    assert(p.receiveOne(2.seconds, true, 20.msecs));
+    assert(attempts == 2);
+    assert(p.status(id) == Pacchettino.Status.SUCCESS);
+
+    // Without delay, RETRY queues the job again immediately
+    p.retryDelay = Duration.zero;
+    attempts = 0;
+    id = p.sendData("retry me again");
+    assert(p.receive() == 1);
+    assert(p.status(id) == Pacchettino.Status.QUEUED);
 
     rmdirRecurse(baseDir);
 }

@@ -24,9 +24,21 @@ private __gshared Mutex activeJobsMutex;
 
 shared static this() { activeJobsMutex = new Mutex(); }
 
-// Max length of a file name. The processing dir name is "fle-<uuid>-<name>.<pid>".
+// Max length of a file name (NAME_MAX). The longest names used are:
+// "fle-<uuid>-<name>.<pid>" in processing/ and "<due ms>-fle-<uuid>-<name>" in scheduled/.
 private enum maxNameLength = 255;
-private enum maxFileNameLength = maxNameLength - "fle-".length - 36 - "-".length - ".".length - int.max.stringof.length;
+private enum jobNameOverhead = "fle-".length + 36 + "-".length;
+private enum pidSuffixLength = ".".length + int.max.stringof.length;
+private enum dueLength = 13; // Unix time in ms, zero padded (enough until year 2286)
+private enum duePrefixLength = dueLength + "-".length;
+private enum maxFileNameLength = maxNameLength - jobNameOverhead - (duePrefixLength > pidSuffixLength ? duePrefixLength : pidSuffixLength);
+
+// Current unix time in ms
+private long nowMsecs()
+{
+	import std.datetime : unixTimeToStdTime;
+	return (Clock.currStdTime - unixTimeToStdTime(0)) / 10_000;
+}
 
 /**
  * A simple file-based queue system designed to be safe for concurrent use across multiple threads and processes.
@@ -53,7 +65,8 @@ class Pacchettino
 		PROCESSING,  /// Job is being processed
 		SUCCESS,     /// Job completed successfully
 		FAILED,      /// Job failed
-		INTERRUPTED  /// Job was interrupted by a crashed process
+		INTERRUPTED, /// Job was interrupted by a crashed process
+		SCHEDULED    /// Job is waiting for its delay to expire before being queued
 	}
 
 	/**
@@ -91,6 +104,7 @@ class Pacchettino
 		mkdirRecurse(buildNormalizedPath(baseDir, "tmp"));
 		mkdirRecurse(buildNormalizedPath(baseDir, "processing"));
 		mkdirRecurse(buildNormalizedPath(baseDir, "interrupted"));
+		mkdirRecurse(buildNormalizedPath(baseDir, "scheduled"));
 	}
 
 	/**
@@ -102,22 +116,23 @@ class Pacchettino
 	 * Returns:
 	 *   The ID of the queued job.
 	 */
-	string sendData(string s) const { return sendData(s.representation); }
+	string sendData(string s, Duration delay = Duration.zero) const { return sendData(s.representation, delay); }
 
 	/**
 	 * Sends raw bytes to the queue.
 	 *
 	 * Params:
 	 *   s = The bytes to send.
+	 *   delay = How long to wait before the job can be processed.
 	 *
 	 * Returns:
 	 *   The ID of the queued job.
 	 */
-	string sendData(const ubyte[] s) const
+	string sendData(const ubyte[] s, Duration delay = Duration.zero) const
 	{
 		auto id = UUIDv7!string();
 		auto tmp = buildNormalizedPath(baseDir, "tmp", id);
-		auto path = buildNormalizedPath(baseDir,"queued", "raw-" ~ id);
+		auto path = enqueuePath("raw-" ~ id, delay);
 
 		try
 		{
@@ -139,6 +154,7 @@ class Pacchettino
 	 * Params:
 	 *   filePath = The path to the file to send.
 	 *   copyFile = Whether to copy the file (true) or move it (false).
+	 *   delay = How long to wait before the job can be processed.
 	 *
 	 * Returns:
 	 *   The ID of the queued job.
@@ -146,7 +162,7 @@ class Pacchettino
 	 * Throws:
 	 *   Exception if the file does not exist or its name is too long to be queued.
 	 */
-	string sendFile(const string filePath, bool copyFile = true) const
+	string sendFile(const string filePath, bool copyFile = true, Duration delay = Duration.zero) const
 	{
 		if (!exists(filePath))
 			throw new Exception("File not found: " ~ filePath);
@@ -156,7 +172,7 @@ class Pacchettino
 
 		auto id = UUIDv7!string();
 		auto tmp = buildNormalizedPath(baseDir, "tmp", id);
-		auto path = buildNormalizedPath(baseDir, "queued", "fle-" ~ id ~ "-" ~ filePath.baseName);
+		auto path = enqueuePath("fle-" ~ id ~ "-" ~ filePath.baseName, delay);
 
 		if (copyFile)
 			std.file.copy(filePath, tmp);
@@ -182,6 +198,40 @@ class Pacchettino
 		return id;
 	}
 
+	// Where to put a job: queued/ or, if delayed, scheduled/ with the due time as prefix
+	private string enqueuePath(string jobName, Duration delay) const
+	{
+		import std.format : format;
+
+		if (delay <= Duration.zero) return buildNormalizedPath(baseDir, "queued", jobName);
+		return buildNormalizedPath(baseDir, "scheduled", format("%0*d-%s", dueLength, nowMsecs + delay.total!"msecs", jobName));
+	}
+
+	// Moves the scheduled jobs whose delay expired to the queue
+	private void promoteScheduled() const
+	{
+		auto entries = dirEntries(buildNormalizedPath(baseDir, "scheduled"), "*-{fle,raw}-*", SpanMode.shallow).array;
+		entries.sort!((a, b) => a.baseName < b.baseName);
+
+		long now = nowMsecs;
+
+		foreach (entry; entries)
+		{
+			string name = entry.baseName;
+			if (name.length <= duePrefixLength) continue;
+
+			long due;
+			try due = name[0..dueLength].to!long;
+			catch (Exception e) continue;
+
+			// Sorted by due time: nothing else is ready
+			if (due > now) break;
+
+			try rename(entry.name, buildNormalizedPath(baseDir, "queued", name[duePrefixLength..$]));
+			catch (Exception e) {} // Promoted by someone else in the meanwhile
+		}
+	}
+
 	// Accepts both the id returned by send* and the one passed to callbacks ("raw-<id>" or "fle-<id>-<name>")
 	private static string jobKey(string id)
 	{
@@ -195,8 +245,12 @@ class Pacchettino
 		string key = jobKey(id);
 		if (key.length == 0) return null;
 
-		foreach (f; dirEntries(buildNormalizedPath(baseDir, directory), "{fle,raw}-*", SpanMode.shallow))
-			if (f.baseName.length > 4 && f.baseName[4..$].startsWith(key))
+		// Scheduled jobs have the due time as prefix
+		bool scheduled = directory == "scheduled";
+		size_t skip = (scheduled ? duePrefixLength : 0) + 4;
+
+		foreach (f; dirEntries(buildNormalizedPath(baseDir, directory), scheduled ? "*-{fle,raw}-*" : "{fle,raw}-*", SpanMode.shallow))
+			if (f.baseName.length > skip && f.baseName[skip..$].startsWith(key))
 				return f.name;
 
 		return null;
@@ -219,6 +273,17 @@ class Pacchettino
 	 *   True if the job is processing, false otherwise.
 	 */
 	bool isProcessing(string id) const => isInDirectory(id, "processing");
+
+	/**
+	 * Checks if a job is scheduled (sent with a delay not yet expired).
+	 *
+	 * Params:
+	 *   id = The job ID.
+	 *
+	 * Returns:
+	 *   True if the job is scheduled, false otherwise.
+	 */
+	bool isScheduled(string id) const => isInDirectory(id, "scheduled");
 
 	/**
 	 * Checks if a job is queued.
@@ -353,6 +418,17 @@ class Pacchettino
 	}
 
 	/**
+	 * Counts the number of jobs scheduled (sent with a delay not yet expired).
+	 *
+	 * Returns:
+	 *   The number of scheduled jobs.
+	 */
+	size_t countScheduled() const
+	{
+		return dirEntries(buildNormalizedPath(baseDir, "scheduled"), "*-{fle,raw}-*", SpanMode.shallow).walkLength;
+	}
+
+	/**
 	 * Counts the total number of jobs in all states (based on current keep policy).
 	 *
 	 * Returns:
@@ -360,7 +436,7 @@ class Pacchettino
 	 */
 	size_t countAll() const
 	{
-		size_t total = countQueued() + countProcessing();
+		size_t total = countScheduled() + countQueued() + countProcessing();
 
 		if (keepPolicy & KeepPolicy.SUCCESS) total += countSuccessful();
 		if (keepPolicy & KeepPolicy.FAILED) total += countFailed();
@@ -381,6 +457,7 @@ class Pacchettino
 	Status status(string id) const
 	{
 		// Checked following the job lifecycle, so a job moving forward in the meanwhile is not missed
+		if (isInDirectory(id, "scheduled")) return Status.SCHEDULED;
 		if (isInDirectory(id, "queued")) return Status.QUEUED;
 		if (isInDirectory(id, "processing")) return Status.PROCESSING;
 		if (isInDirectory(id, "success")) return Status.SUCCESS;
@@ -623,8 +700,9 @@ class Pacchettino
 
 	private size_t receiveImpl(bool randomize = true, size_t maxFiles = 0) const
 	{
-		// Before processing new files, check for orphan files
+		// Before processing new files, check for orphan files and expired delays
 		recoverStalledJobs();
+		promoteScheduled();
 
 		auto files = dirEntries(buildNormalizedPath(baseDir, "queued"), "{fle,raw}-*", SpanMode.shallow).array;
 
@@ -710,7 +788,7 @@ class Pacchettino
 			try {
 				if (result == Result.FAILED && (keepPolicy & KeepPolicy.FAILED)) rename(path, buildNormalizedPath(baseDir, "failed", id));
 				else if (result == Result.SUCCESS && (keepPolicy & KeepPolicy.SUCCESS)) rename(path, buildNormalizedPath(baseDir, "success", id));
-				else if (result == Result.RETRY) rename(path, buildNormalizedPath(baseDir, "queued", id));
+				else if (result == Result.RETRY) rename(path, enqueuePath(id, retryDelay));
 			}
 			catch (Exception e) { warning("Pacchettino rename error: ", e.msg); }
 
@@ -745,6 +823,12 @@ class Pacchettino
 	 *   The result of the processing.
 	 */
 	Result delegate(string id, ubyte[] data) onDataReceived;
+
+	/**
+	 * How long to wait before processing again a job whose callback returned Result.RETRY.
+	 * Zero (default) queues it again immediately.
+	 */
+	Duration retryDelay = Duration.zero;
 
 	private string baseDir;
 	private KeepPolicy keepPolicy;

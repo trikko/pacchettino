@@ -11,6 +11,7 @@ It uses atomic file operations (renames) and PID tracking to ensure jobs are pro
 - **Crash Recovery**: Automatically detects stalled jobs from dead processes and moves them to an `interrupted` state (or cleans them up based on policy).
 - **Flexible Retention**: Configure which jobs to keep after processing (Success, Failed, Interrupted) using bitwise flags.
 - **Simple API**: Easy methods to send data/files and define handlers for receiving them.
+- **Delayed jobs and retries**: Send jobs with a delay, or wait before retrying.
 - **FIFO or random order**: `receive(false)` / `receiveOne(false)` process jobs in the order they were sent.
 
 > **Note:** Pacchettino relies on POSIX APIs (`kill`) for crash recovery: it runs on Linux, macOS and BSD, but not on Windows.
@@ -44,7 +45,7 @@ void main()
     writeln("Sent file job: ", id);
 
     // You can check the status of the job
-    // (QUEUED, PROCESSING, SUCCESS, FAILED, INTERRUPTED or UNKNOWN)
+    // (SCHEDULED, QUEUED, PROCESSING, SUCCESS, FAILED, INTERRUPTED or UNKNOWN)
     writeln("Job status: ", queue.status(id));
     writeln("Sent at: ", Pacchettino.sentAt(id));
 
@@ -54,6 +55,8 @@ void main()
     if (queue.isFailed(id)) writeln("Job failed");
 }
 ```
+
+> **Note:** `sendFile` accepts file names up to 200 bytes (the filesystem limit is 255 bytes per name, and Pacchettino adds its own prefixes).
 
 ### 2. The Consumer
 
@@ -141,16 +144,31 @@ queue.requeueAll();  // All failed and interrupted jobs
 queue.requeueAll(Pacchettino.KeepPolicy.INTERRUPTED); // Only interrupted jobs
 ```
 
+### Delayed jobs
+
+Jobs can be sent with a delay: they stay in `scheduled/` and are moved to the queue when the delay expires.
+
+```d
+queue.sendData("reminder", 10.minutes);
+queue.sendFile("./report.pdf", true, 1.hours);
+
+// RETRY waits 30 seconds before processing the job again (default: immediately)
+queue.retryDelay = 30.seconds;
+```
+
+Delayed jobs are picked up by the next `receive`/`receiveOne` call after their delay, so with `receiveOne(timeout)` they are processed within one poll interval.
+
 Job ids passed to callbacks can be used too with `status`, `requeue`, `sentAt` and the `is*` methods.
 
 ### Counters
 
-`countQueued`, `countProcessing`, `countSuccessful`, `countFailed`, `countInterrupted` and `countAll` return the number of jobs in each state.
+`countScheduled`, `countQueued`, `countProcessing`, `countSuccessful`, `countFailed`, `countInterrupted` and `countAll` return the number of jobs in each state.
 
 ### Folder Structure
 
 Pacchettino creates the following structure inside your base directory:
 
+- `scheduled/`: Sent with a delay not yet expired.
 - `queued/`: Waiting to be processed.
 - `processing/`: Currently locked by a consumer process.
 - `success/`: Successfully processed jobs.
