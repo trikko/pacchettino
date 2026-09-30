@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="UTF-8"/>
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0"/>
+		<title>UUIDv7 - multiple declarations</title>
+		<link rel="stylesheet" href="../../css/style.min.css"/>
+		<script type="text/javascript" src="../../js/script.min.js"></script>
+	</head>
+	<body onload="setupDdox();">
+		<header></header>
+		<nav id="main-nav">
+			<div>
+				<noscript>
+					<p style="color: red">The search functionality needs JavaScript enabled</p>
+				</noscript>
+				<div id="symbolSearchPane" style="display: none">
+					<form action="#" method="GET">
+						<input id="symbolSearch" type="text" name="q" placeholder="Search for symbols" autocomplete="off" onchange="performSymbolSearch(24);" onkeypress="this.onchange();" onpaste="this.onchange();" oninput="this.onchange();" autofocus/>
+					</form>
+					<ul id="symbolSearchResults" class="symbolList" style="display: none"></ul><script type="application/javascript" src="../../symbols.js"></script><script type="application/javascript">var symbolSearchRootDir = "../../";
+document.getElementById('symbolSearchPane').style.display = 'block';</script>
+				</div>
+				<ul class="tree-view">
+					<li class="tree-view ">
+						<a class="package" href="#">pacchettino</a>
+				<ul class="tree-view">
+					<li>
+						<a class="module selected" href="../../pacchettino/uuid.html">uuid</a>
+				<ul class="tree-view">
+				<li class="tree-view collapsed">
+					<a class="toLower(to!string(Enum))" href="../../pacchettino/uuid/UUIDNamespace.html">UUIDNamespace</a>
+				</li>
+				<li class="tree-view collapsed">
+					<a class="toLower(to!string(Function))" href="../../pacchettino/uuid/UUIDv3.html">UUIDv3</a>
+				</li>
+				<li class="tree-view collapsed">
+					<a class="toLower(to!string(Function))" href="../../pacchettino/uuid/UUIDv3.html">UUIDv3</a>
+				</li>
+				<li class="tree-view collapsed">
+					<a class="toLower(to!string(Function))" href="../../pacchettino/uuid/UUIDv3.html">UUIDv3</a>
+				</li>
+				<li class="tree-view collapsed">
+					<a class="toLower(to!string(Function))" href="../../pacchettino/uuid/UUIDv4.html">UUIDv4</a>
+				</li>
+				<li class="tree-view collapsed">
+					<a class="toLower(to!string(Function))" href="../../pacchettino/uuid/UUIDv4.html">UUIDv4</a>
+				</li>
+				<li class="tree-view collapsed">
+					<a class="toLower(to!string(Function))" href="../../pacchettino/uuid/UUIDv5.html">UUIDv5</a>
+				</li>
+				<li class="tree-view collapsed">
+					<a class="toLower(to!string(Function))" href="../../pacchettino/uuid/UUIDv5.html">UUIDv5</a>
+				</li>
+				<li class="tree-view collapsed">
+					<a class="toLower(to!string(Function))" href="../../pacchettino/uuid/UUIDv5.html">UUIDv5</a>
+				</li>
+				<li class="tree-view collapsed">
+					<a class="toLower(to!string(Function))" href="../../pacchettino/uuid/UUIDv7.html">UUIDv7</a>
+				</li>
+				<li class="tree-view collapsed">
+					<a class="toLower(to!string(Function))" href="../../pacchettino/uuid/UUIDv7.html">UUIDv7</a>
+				</li>
+				</ul>
+					</li>
+				</ul>
+					</li>
+					<li>
+						<a class="module collapsed" href="../../pacchettino.html">pacchettino</a>
+					</li>
+				</ul>
+			</div>
+			<p id="main-nav-footer">
+				Built with<a href="https://github.com/MartinNowak/scod">scod</a>
+			</p>
+		</nav>
+		<div id="main-contents">
+			<div>
+				<h1>UUIDv7 - multiple declarations</h1>
+				<nav class="page-nav">
+					<ul>
+						<li>
+							<a href="#0">
+								Function <code>UUIDv7</code>
+							</a>
+						</li>
+						<li>
+							<a href="#1">
+								Function <code>UUIDv7</code>
+							</a>
+						</li>
+					</ul>
+				</nav><h2 id="0">Function UUIDv7</h2><p>Generate a UUIDv7 (timestamp based + counter + random bytes) as string
+</p>
+				<div class="prototype">
+					<code class="lang-d">
+						<div class="single-prototype"><span class="typ">string</span> <span class="pln">UUIDv7</span>(T)<span class="pun">(</span><span class="pun">)</span>
+				<br/>
+				<span class="kwd">if</span> <span class="pun">(</span><span class="kwd">is</span><span class="pun">(</span><span class="pln">T </span><span class="pun">== </span><span class="typ">string</span><span class="pun">)</span><span class="pun">);</span>
+						</div>
+					</code>
+				</div>
+				<h2 id="1">Function UUIDv7</h2><p>Generate a UUIDv7 (timestamp based + counter + random bytes) as ubyte[16]
+</p>
+				<div class="prototype">
+					<code class="lang-d">
+						<div class="single-prototype"><span class="typ">ubyte</span><span class="pun">[</span><span class="lit">16</span><span class="pun">]</span> <span class="pln">UUIDv7</span>(T)<span class="pun">(</span><span class="pun">)</span>
+				<br/>
+				<span class="kwd">if</span> <span class="pun">(</span><span class="kwd">is</span><span class="pun">(</span><span class="pln">T </span><span class="pun">== </span><span class="typ">ubyte</span><span class="pun">)</span><span class="pun">);</span>
+						</div>
+					</code>
+				</div>
+				
+			</div>
+			<footer>
+				<div id="license-info">
+					
+				</div>
+			</footer>
+		</div>
+	</body>
+</html>

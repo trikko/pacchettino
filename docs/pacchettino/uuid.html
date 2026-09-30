@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="UTF-8"/>
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0"/>
+		<title>Module pacchettino.uuid</title>
+		<link rel="stylesheet" href="../css/style.min.css"/>
+		<script type="text/javascript" src="../js/script.min.js"></script>
+	</head>
+	<body onload="setupDdox();">
+		<header></header>
+		<nav id="main-nav">
+			<div>
+				<noscript>
+					<p style="color: red">The search functionality needs JavaScript enabled</p>
+				</noscript>
+				<div id="symbolSearchPane" style="display: none">
+					<form action="#" method="GET">
+						<input id="symbolSearch" type="text" name="q" placeholder="Search for symbols" autocomplete="off" onchange="performSymbolSearch(24);" onkeypress="this.onchange();" onpaste="this.onchange();" oninput="this.onchange();" autofocus/>
+					</form>
+					<ul id="symbolSearchResults" class="symbolList" style="display: none"></ul><script type="application/javascript" src="../symbols.js"></script><script type="application/javascript">var symbolSearchRootDir = "../";
+document.getElementById('symbolSearchPane').style.display = 'block';</script>
+				</div>
+				<ul class="tree-view">
+					<li class="tree-view ">
+						<a class="package" href="#">pacchettino</a>
+				<ul class="tree-view">
+					<li>
+						<a class="module selected" href="../pacchettino/uuid.html">uuid</a>
+				<ul class="tree-view">
+				<li class="tree-view collapsed">
+					<a class="toLower(to!string(Enum))" href="../pacchettino/uuid/UUIDNamespace.html">UUIDNamespace</a>
+				</li>
+				<li class="tree-view collapsed">
+					<a class="toLower(to!string(Function))" href="../pacchettino/uuid/UUIDv3.html">UUIDv3</a>
+				</li>
+				<li class="tree-view collapsed">
+					<a class="toLower(to!string(Function))" href="../pacchettino/uuid/UUIDv3.html">UUIDv3</a>
+				</li>
+				<li class="tree-view collapsed">
+					<a class="toLower(to!string(Function))" href="../pacchettino/uuid/UUIDv3.html">UUIDv3</a>
+				</li>
+				<li class="tree-view collapsed">
+					<a class="toLower(to!string(Function))" href="../pacchettino/uuid/UUIDv4.html">UUIDv4</a>
+				</li>
+				<li class="tree-view collapsed">
+					<a class="toLower(to!string(Function))" href="../pacchettino/uuid/UUIDv4.html">UUIDv4</a>
+				</li>
+				<li class="tree-view collapsed">
+					<a class="toLower(to!string(Function))" href="../pacchettino/uuid/UUIDv5.html">UUIDv5</a>
+				</li>
+				<li class="tree-view collapsed">
+					<a class="toLower(to!string(Function))" href="../pacchettino/uuid/UUIDv5.html">UUIDv5</a>
+				</li>
+				<li class="tree-view collapsed">
+					<a class="toLower(to!string(Function))" href="../pacchettino/uuid/UUIDv5.html">UUIDv5</a>
+				</li>
+				<li class="tree-view collapsed">
+					<a class="toLower(to!string(Function))" href="../pacchettino/uuid/UUIDv7.html">UUIDv7</a>
+				</li>
+				<li class="tree-view collapsed">
+					<a class="toLower(to!string(Function))" href="../pacchettino/uuid/UUIDv7.html">UUIDv7</a>
+				</li>
+				</ul>
+					</li>
+				</ul>
+					</li>
+					<li>
+						<a class="module collapsed" href="../pacchettino.html">pacchettino</a>
+					</li>
+				</ul>
+			</div>
+			<p id="main-nav-footer">
+				Built with<a href="https://github.com/MartinNowak/scod">scod</a>
+			</p>
+		</nav>
+		<div id="main-contents">
+			<div>
+				<h1>Module pacchettino.uuid</h1><p>UUID generation (versions 3, 4, 5 and 7), used by pacchettino for job ids.
+</p><section><p>Every function returns the UUID as a lowercase string by default, or as
+ <code class="lang-d"><span class="typ">ubyte</span><span class="pun">[</span><span class="lit">16</span><span class="pun">]</span></code> with <code class="lang-d"><span class="pun">!</span><span class="typ">ubyte</span></code>. Version 7 ids are time ordered: sorting them as
+ strings sorts them by creation time, also between ids created in the same
+ millisecond by the same process.
+</p>
+</section>
+<section><section><h2>Example</h2>
+<pre class="code"><code class="lang-d"><span class="typ">string </span><span class="pln">id </span><span class="pun">= <a href="../pacchettino/uuid/UUIDv7.html"></span><span class="typ">UUIDv7</span></a><span class="pun">();                          </span><span class="com">// "01a0f35b-14fd-7000-903a-e2144b506627"
+</span><span class="typ">ubyte</span><span class="pun">[</span><span class="lit">16</span><span class="pun">] </span><span class="pln">raw </span><span class="pun">= <a href="../pacchettino/uuid/UUIDv4.html"></span><span class="typ">UUIDv4</span></a><span class="pun">!</span><span class="typ">ubyte</span><span class="pun">();
+</span><span class="typ">string </span><span class="pln">dns </span><span class="pun">= <a href="../pacchettino/uuid/UUIDv5.html"></span><span class="typ">UUIDv5</span></a><span class="pun">(</span><span class="str">"www.example.com"</span><span class="pun">, </span><span class="typ">UUIDNamespace<wbr/></span><span class="pun">.</span><span class="pln">DNS</span><span class="pun">);</span></code></pre>
+</section>
+</section>
+				<section>
+					<h2>Functions</h2>
+					<table>
+						<col class="caption"/>
+						<tr>
+							<th>Name</th><th>Description</th>
+						</tr>
+						<tr>
+							<td>
+								<code>
+									<a id="UUIDv3" class="public" href="../pacchettino/uuid/UUIDv3.html">UUIDv3</a><span class="tableEntryAnnotation">(name, namespace)</span>
+								</code>
+							</td>
+							<td>Generate a UUID v3 (namespace + name based with MD5) as string
+</td>
+						</tr>
+						<tr>
+							<td>
+								<code>
+									<a id="UUIDv3" class="public" href="../pacchettino/uuid/UUIDv3.html">UUIDv3</a><span class="tableEntryAnnotation">(name, namespace)</span>
+								</code>
+							</td>
+							<td>Generate a UUID v3 (namespace + name based with MD5) as ubyte[16]
+</td>
+						</tr>
+						<tr>
+							<td>
+								<code>
+									<a id="UUIDv4" class="public" href="../pacchettino/uuid/UUIDv4.html">UUIDv4</a><span class="tableEntryAnnotation">()</span>
+								</code>
+							</td>
+							<td>Generate a UUID v4 (random bytes) as string
+</td>
+						</tr>
+						<tr>
+							<td>
+								<code>
+									<a id="UUIDv4" class="public" href="../pacchettino/uuid/UUIDv4.html">UUIDv4</a><span class="tableEntryAnnotation">()</span>
+								</code>
+							</td>
+							<td>Generate a UUID v4 (random bytes) as ubyte[16]
+</td>
+						</tr>
+						<tr>
+							<td>
+								<code>
+									<a id="UUIDv5" class="public" href="../pacchettino/uuid/UUIDv5.html">UUIDv5</a><span class="tableEntryAnnotation">(name, namespace)</span>
+								</code>
+							</td>
+							<td>Generate a UUID v5 (namespace + name based) as string
+</td>
+						</tr>
+						<tr>
+							<td>
+								<code>
+									<a id="UUIDv5" class="public" href="../pacchettino/uuid/UUIDv5.html">UUIDv5</a><span class="tableEntryAnnotation">(name, namespace)</span>
+								</code>
+							</td>
+							<td>Generate a UUID v5 (namespace + name based) as ubyte[16]
+</td>
+						</tr>
+						<tr>
+							<td>
+								<code>
+									<a id="UUIDv7" class="public" href="../pacchettino/uuid/UUIDv7.html">UUIDv7</a><span class="tableEntryAnnotation">()</span>
+								</code>
+							</td>
+							<td>Generate a UUIDv7 (timestamp based + counter + random bytes) as string
+</td>
+						</tr>
+						<tr>
+							<td>
+								<code>
+									<a id="UUIDv7" class="public" href="../pacchettino/uuid/UUIDv7.html">UUIDv7</a><span class="tableEntryAnnotation">()</span>
+								</code>
+							</td>
+							<td>Generate a UUIDv7 (timestamp based + counter + random bytes) as ubyte[16]
+</td>
+						</tr>
+					</table>
+				</section>
+				<section>
+					<h2>Enums</h2>
+					<table>
+						<col class="caption"/>
+						<tr>
+							<th>Name</th><th>Description</th>
+						</tr>
+						<tr>
+							<td>
+								<code>
+									<a id="UUIDNamespace" class="public" href="../pacchettino/uuid/UUIDNamespace.html">UUIDNamespace</a>
+								</code>
+							</td>
+							<td>Predefined namespaces for UUID v3 and v5
+</td>
+						</tr>
+					</table>
+				</section>
+			</div>
+			<footer>
+				<div id="license-info">
+					
+				</div>
+			</footer>
+		</div>
+	</body>
+</html>

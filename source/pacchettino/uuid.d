@@ -1,3 +1,18 @@
+/**
+ * UUID generation (versions 3, 4, 5 and 7), used by pacchettino for job ids.
+ *
+ * Every function returns the UUID as a lowercase string by default, or as
+ * `ubyte[16]` with `!ubyte`. Version 7 ids are time ordered: sorting them as
+ * strings sorts them by creation time, also between ids created in the same
+ * millisecond by the same process.
+ *
+ * Example:
+ * ---
+ * string id = UUIDv7();                          // "01a0f35b-14fd-7000-903a-e2144b506627"
+ * ubyte[16] raw = UUIDv4!ubyte();
+ * string dns = UUIDv5("www.example.com", UUIDNamespace.DNS);
+ * ---
+ */
 module pacchettino.uuid;
 
 /// Predefined namespaces for UUID v3 and v5

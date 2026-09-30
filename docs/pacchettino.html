@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="UTF-8"/>
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0"/>
+		<title>Module pacchettino</title>
+		<link rel="stylesheet" href="./css/style.min.css"/>
+		<script type="text/javascript" src="./js/script.min.js"></script>
+	</head>
+	<body onload="setupDdox();">
+		<header></header>
+		<nav id="main-nav">
+			<div>
+				<noscript>
+					<p style="color: red">The search functionality needs JavaScript enabled</p>
+				</noscript>
+				<div id="symbolSearchPane" style="display: none">
+					<form action="#" method="GET">
+						<input id="symbolSearch" type="text" name="q" placeholder="Search for symbols" autocomplete="off" onchange="performSymbolSearch(24);" onkeypress="this.onchange();" onpaste="this.onchange();" oninput="this.onchange();" autofocus/>
+					</form>
+					<ul id="symbolSearchResults" class="symbolList" style="display: none"></ul><script type="application/javascript" src="./symbols.js"></script><script type="application/javascript">var symbolSearchRootDir = "./";
+document.getElementById('symbolSearchPane').style.display = 'block';</script>
+				</div>
+				<ul class="tree-view">
+					<li class="tree-view ">
+						<a class="package" href="#">pacchettino</a>
+				<ul class="tree-view">
+					<li>
+						<a class="module collapsed" href="./pacchettino/uuid.html">uuid</a>
+					</li>
+				</ul>
+					</li>
+					<li>
+						<a class="module selected" href="./pacchettino.html">pacchettino</a>
+				<ul class="tree-view">
+				<li class="tree-view collapsed">
+					<a class="toLower(to!string(Class))" href="./pacchettino/Pacchettino.html">Pacchettino</a>
+				</li>
+				</ul>
+					</li>
+				</ul>
+			</div>
+			<p id="main-nav-footer">
+				Built with<a href="https://github.com/MartinNowak/scod">scod</a>
+			</p>
+		</nav>
+		<div id="main-contents">
+			<div>
+				<h1>Module pacchettino</h1><p>A job queue made of plain directories: one program sends jobs, another one
+ (or many, in other processes or threads) processes them.
+</p><section><p>A job is either some bytes (<code class="lang-d"><span class="pln">sendData</span></code>) or a file (<code class="lang-d"><span class="pln">sendFile</span></code>). It is written
+ to disk before <code class="lang-d"><span class="pln">send</span><span class="pun">*</span></code> returns, so nothing is lost if a program stops or
+ crashes, and a job left half done by a process that died is detected and
+ moved to <code class="lang-d"><span class="pln">interrupted</span><span class="pun">/</span></code>. Each job is given to one consumer only, even with
+ many consumers on the same directory. No server, no database, no dependencies.
+</p>
+</section>
+<section><section><h2>Example</h2>
+<pre class="code"><code class="lang-d"><span class="com">// Producer
+</span><span class="kwd">auto </span><span class="pln">queue </span><span class="pun">= </span><span class="kwd">new <a href="./pacchettino/Pacchettino.html"></span><span class="typ">Pacchettino</span></a><span class="pun">(</span><span class="str">"/var/spool/myapp"</span><span class="pun">);
+</span><span class="pln">queue<wbr/></span><span class="pun">.</span><span class="pln">sendFile</span><span class="pun">(</span><span class="str">"video.mp4"</span><span class="pun">);
+</span><span class="pln">queue<wbr/></span><span class="pun">.</span><span class="pln">sendData</span><span class="pun">(</span><span class="str">"resize photo 42"</span><span class="pun">, </span><span class="lit">10<wbr/></span><span class="pun">.</span><span class="pln">minutes</span><span class="pun">);   </span><span class="com">// not before 10 minutes
+
+// Consumer, in another program
+</span><span class="kwd">auto </span><span class="pln">queue </span><span class="pun">= </span><span class="kwd">new <a href="./pacchettino/Pacchettino.html"></span><span class="typ">Pacchettino</span></a><span class="pun">(</span><span class="str">"/var/spool/myapp"</span><span class="pun">);
+</span><span class="pln">queue<wbr/></span><span class="pun">.</span><span class="pln">onFileReceived </span><span class="pun">= (</span><span class="pln">id</span><span class="pun">, </span><span class="pln">name</span><span class="pun">, </span><span class="pln">path</span><span class="pun">) {
+    </span><span class="pln">upload</span><span class="pun">(</span><span class="pln">path</span><span class="pun">);
+    </span><span class="kwd">return <a href="./pacchettino/Pacchettino.Result.html#SUCCESS"></span><span class="typ">Pacchettino<wbr/></span><span class="pun">.</span><span class="typ">Result<wbr/></span><span class="pun">.</span><span class="pln">SUCCESS</span></a><span class="pun">;   </span><span class="com">// or FAILED, or RETRY
+</span><span class="pun">};
+
+</span><span class="kwd">while </span><span class="pun">(</span><span class="kwd">true</span><span class="pun">) </span><span class="pln">queue<wbr/></span><span class="pun">.</span><span class="pln">receiveOne</span><span class="pun">(</span><span class="lit">5<wbr/></span><span class="pun">.</span><span class="pln">seconds</span><span class="pun">);</span></code></pre>
+
+<p> Where to start:
+ <ul>   <li><code class="lang-d"><a href="./pacchettino/Pacchettino.sendData.html"><span class="typ">Pacchettino<wbr/></span><span class="pun">.</span><span class="pln">sendData</span></a></code> and <code class="lang-d"><a href="./pacchettino/Pacchettino.sendFile.html"><span class="typ">Pacchettino<wbr/></span><span class="pun">.</span><span class="pln">sendFile</span></a></code> — adding jobs, now or with a delay;</li>
+   <li><code class="lang-d"><a href="./pacchettino/Pacchettino.onDataReceived.html"><span class="typ">Pacchettino<wbr/></span><span class="pun">.</span><span class="pln">onDataReceived</span></a></code>, <code class="lang-d"><a href="./pacchettino/Pacchettino.onFileReceived.html"><span class="typ">Pacchettino<wbr/></span><span class="pun">.</span><span class="pln">onFileReceived</span></a></code> and <code class="lang-d"><a href="./pacchettino/Pacchettino.receiveOne.html"><span class="typ">Pacchettino<wbr/></span><span class="pun">.</span><span class="pln">receiveOne</span></a></code> — processing them;</li>
+   <li><code class="lang-d"><a href="./pacchettino/Pacchettino.status.html"><span class="typ">Pacchettino<wbr/></span><span class="pun">.</span><span class="pln">status</span></a></code>, <code class="lang-d"><a href="./pacchettino/Pacchettino.requeue.html"><span class="typ">Pacchettino<wbr/></span><span class="pun">.</span><span class="pln">requeue</span></a></code> and <code class="lang-d"><a href="./pacchettino/Pacchettino.cleanup.html"><span class="typ">Pacchettino<wbr/></span><span class="pun">.</span><span class="pln">cleanup</span></a></code> — following and managing them;</li>
+   <li><code class="lang-d"><a href="./pacchettino/Pacchettino.KeepPolicy.html"><span class="typ">Pacchettino<wbr/></span><span class="pun">.</span><span class="typ">KeepPolicy</span></a></code> — which processed jobs stay on disk.</li>
+ </ul>
+</p>
+
+<p> Works on POSIX systems (Linux, macOS, BSD).
+</p>
+</section>
+<section><h2>See Also</h2>
+<p><a href="https://github.com/trikko/pacchettino">the README</a> for a guided tour,
+   <a href="https://trikko.github.io/pacchettino/llms-full.txt">llms-full.txt</a> for
+   the whole API in one file.
+</p>
+</section>
+</section>
+				<section>
+					<h2>Classes</h2>
+					<table>
+						<col class="caption"/>
+						<tr>
+							<th>Name</th><th>Description</th>
+						</tr>
+						<tr>
+							<td>
+								<code>
+									<a id="Pacchettino" class="public" href="./pacchettino/Pacchettino.html">Pacchettino</a>
+								</code>
+							</td>
+							<td>A simple file-based queue system designed to be safe for concurrent use across multiple threads and processes.
+</td>
+						</tr>
+					</table>
+				</section>
+			</div>
+			<footer>
+				<div id="license-info">
+					
+				</div>
+			</footer>
+		</div>
+	</body>
+</html>

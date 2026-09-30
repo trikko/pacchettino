@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="UTF-8"/>
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0"/>
+		<title>Function Pacchettino.sentAt</title>
+		<link rel="stylesheet" href="../css/style.min.css"/>
+		<script type="text/javascript" src="../js/script.min.js"></script>
+	</head>
+	<body onload="setupDdox();">
+		<header></header>
+		<nav id="main-nav">
+			<div>
+				<noscript>
+					<p style="color: red">The search functionality needs JavaScript enabled</p>
+				</noscript>
+				<div id="symbolSearchPane" style="display: none">
+					<form action="#" method="GET">
+						<input id="symbolSearch" type="text" name="q" placeholder="Search for symbols" autocomplete="off" onchange="performSymbolSearch(24);" onkeypress="this.onchange();" onpaste="this.onchange();" oninput="this.onchange();" autofocus/>
+					</form>
+					<ul id="symbolSearchResults" class="symbolList" style="display: none"></ul><script type="application/javascript" src="../symbols.js"></script><script type="application/javascript">var symbolSearchRootDir = "../";
+document.getElementById('symbolSearchPane').style.display = 'block';</script>
+				</div>
+				<ul class="tree-view">
+					<li class="tree-view ">
+						<a class="package" href="#">pacchettino</a>
+				<ul class="tree-view">
+					<li>
+						<a class="module collapsed" href="../pacchettino/uuid.html">uuid</a>
+					</li>
+				</ul>
+					</li>
+					<li>
+						<a class="module selected" href="../pacchettino.html">pacchettino</a>
+				<ul class="tree-view">
+				<li class="tree-view collapsed">
+					<a class="toLower(to!string(Class))" href="../pacchettino/Pacchettino.html">Pacchettino</a>
+				</li>
+				</ul>
+					</li>
+				</ul>
+			</div>
+			<p id="main-nav-footer">
+				Built with<a href="https://github.com/MartinNowak/scod">scod</a>
+			</p>
+		</nav>
+		<div id="main-contents">
+			<div>
+				<h1>Function Pacchettino.sentAt</h1><p>Returns the time a job was sent, extracted from its ID.
+</p>
+				<div class="prototype">
+					<code class="lang-d">
+						<div class="single-prototype">
+				<span class="kwd">static </span><span class="pln">std<wbr/></span><span class="pun">.</span><span class="pln">datetime<wbr/></span><span class="pun">.</span><span class="pln">systime<wbr/></span><span class="pun">.</span><span class="typ">SysTime</span> <span class="pln">sentAt</span><span class="pun">(</span>
+				<br/>&nbsp;&nbsp;<span class="typ">string</span> <span class="pln">id</span>
+				<br/>
+				<span class="pun">)</span><span class="pun">;</span>
+						</div>
+					</code>
+				</div>
+				<section></section>
+<section><h2>Parameters</h2>
+<table><col class="caption"><tr><th>Name</th><th>Description</th></tr>
+<tr><td id="id">id</td><td> The job ID.</td></tr>
+</table>
+</section>
+<section><h2>Throws</h2>
+<p>Exception if the ID is not valid.
+</p>
+</section>
+
+			</div>
+			<footer>
+				<div id="license-info">
+					
+				</div>
+			</footer>
+		</div>
+	</body>
+</html>

@@ -1,0 +1,240 @@
+# pacchettino: file-based job queue for D — full reference
+
+pacchettino is a job queue for the D programming language made of plain directories on disk. Producers add jobs (some bytes, or a file), consumers in other processes or threads process them. No server, no database, no dependencies. POSIX only (Linux, macOS, BSD). MIT license. `import pacchettino;` for the queue, `import pacchettino.uuid;` for the UUID functions.
+
+This file documents the `main` branch; see "Versions" at the end for what the last release (1.0.3) lacks.
+
+- Rules for agents: https://trikko.github.io/pacchettino/AGENTS.md
+- API documentation: https://trikko.github.io/pacchettino/
+- Source: https://github.com/trikko/pacchettino
+
+## Installation
+
+`dub add pacchettino`. dmd or ldc2. The `Duration` arguments below are written with `core.time` literals (`5.seconds`, `10.minutes`): `import core.time;` (or `std.datetime`) in your code.
+
+## Guarantees
+
+- A job is on disk before `sendData`/`sendFile` returns: it survives the producer stopping, the consumer stopping, a reboot.
+- A job never appears half written: it is written in `tmp/` and moved into the queue with an atomic rename.
+- Each job is given to one consumer only, even with many consumer processes and threads on the same directory.
+- If a consumer dies while processing a job, the next `receive*` of any consumer on the same directory moves that job to `interrupted/`. It is not processed again automatically: the callback may have done part of the work. `requeue`/`requeueAll` try it again.
+- The same machine only: crash detection checks if the PID that took the job is still alive. Do not share the directory over NFS, SMB or a synced folder.
+
+## Pacchettino
+
+```d
+this(string baseDir, KeepPolicy keepPolicy = KeepPolicy.ALL);
+```
+
+Creates `baseDir` and its subdirectories if missing; throws if `baseDir` exists and is not a directory. There is nothing to open or close: every producer and consumer creates its own `Pacchettino` on the same directory. An instance can be used by many threads for sending and receiving; set the callbacks and `retryDelay` before the threads start.
+
+### KeepPolicy
+
+```d
+enum KeepPolicy { NONE = 0, SUCCESS = 1, FAILED = 2, INTERRUPTED = 4, ALL = SUCCESS | FAILED | INTERRUPTED }
+```
+
+Which processed jobs stay on disk, combined with `|`: `new Pacchettino(dir, KeepPolicy.FAILED | KeepPolicy.INTERRUPTED)`. The jobs not kept are deleted as soon as they are processed. The default `ALL` keeps everything forever: use `cleanup`.
+
+## Sending
+
+```d
+string sendData(string s, Duration delay = Duration.zero) const;
+string sendData(const ubyte[] s, Duration delay = Duration.zero) const;
+string sendFile(const string filePath, bool copyFile = true, Duration delay = Duration.zero) const;
+```
+
+- Return the job id, a UUIDv7 string (`"01a0f35b-14fd-7000-903a-e2144b506627"`). UUIDv7 ids are ordered by time.
+- `sendFile` copies the file into the queue; with `copyFile = false` it moves it (a rename, or copy and delete across filesystems). Throws if the file does not exist or its name is longer than 200 bytes. The consumer gets the original file name back.
+- `sendData` is for small payloads: the consumer receives all of it in memory. For big data write a file and use `sendFile`.
+- `delay`: the job waits in `scheduled/` and is moved to the queue by the first `receive*` after the delay.
+
+```d
+auto id = queue.sendData("send newsletter 12");
+queue.sendData(cast(const ubyte[]) serialized);
+queue.sendFile("/tmp/report.pdf");                 // copy
+queue.sendFile("/tmp/report.pdf", false);          // move
+queue.sendFile("/tmp/report.pdf", true, 1.hours);  // copy, not before one hour
+queue.sendData("reminder", 10.minutes);
+```
+
+## Receiving
+
+```d
+Result delegate(string id, ubyte[] data) onDataReceived;
+Result delegate(string id, string name, string path) onFileReceived;
+Duration retryDelay = Duration.zero;
+
+size_t receive(bool randomize = true) const;
+bool   receiveOne(bool randomize = true) const;
+bool   receiveOne(Duration timeout, bool randomize = true, Duration pollInterval = 100.msecs) const;
+```
+
+- Set both callbacks if both kinds of job can arrive: the defaults return `Result.FAILED`.
+- `onDataReceived(id, data)`: `id` is `"raw-<uuid>"`, `data` the bytes sent.
+- `onFileReceived(id, name, path)`: `id` is `"fle-<uuid>-<name>"`, `name` the original file name, `path` where the file is now (inside `processing/`). Read it or copy it; do not move or delete it: pacchettino moves or deletes it according to the result.
+- The callbacks run inside `receive*`, in the calling thread, one job at a time. There is no background thread: nothing is processed, promoted from `scheduled/` or recovered from a crash except inside a `receive*` call.
+- `receive()` processes every job currently queued and returns how many. `receiveOne()` processes at most one and returns `true` if it did. `receiveOne(timeout)` waits for a job up to `timeout`, checking every `pollInterval`, and returns `false` if none arrived: it is the loop of a consumer.
+- `randomize`: random order by default (many consumers do not compete for the same job); `false` processes the oldest job first (FIFO).
+
+### Result
+
+```d
+enum Result { SUCCESS, FAILED, RETRY }
+```
+
+- `SUCCESS`: moved to `success/` (if kept), otherwise deleted.
+- `FAILED`: moved to `failed/` (if kept), otherwise deleted. An exception thrown by the callback is `FAILED`.
+- `RETRY`: back in the queue at once, or in `scheduled/` for `retryDelay` if it is not zero. There is no attempt counter: keep one yourself (for example in a map by id, or inside the data) if retries must stop.
+
+```d
+queue.retryDelay = 30.seconds;
+queue.onDataReceived = (string id, ubyte[] data) {
+    try { callApi(cast(string) data); return Pacchettino.Result.SUCCESS; }
+    catch (TimeoutException e) return Pacchettino.Result.RETRY;
+};
+```
+
+## Following jobs
+
+```d
+enum Status { UNKNOWN, QUEUED, PROCESSING, SUCCESS, FAILED, INTERRUPTED, SCHEDULED }
+
+Status status(string id) const;
+static SysTime sentAt(string id);
+
+bool isScheduled(string id) const;
+bool isQueued(string id) const;
+bool isProcessing(string id) const;
+bool isSuccess(string id) const;       // throws if the policy does not keep SUCCESS
+bool isFailed(string id) const;        // throws if the policy does not keep FAILED
+bool isInterrupted(string id) const;   // throws if the policy does not keep INTERRUPTED
+
+size_t countScheduled() const;
+size_t countQueued() const;
+size_t countProcessing() const;
+size_t countSuccessful() const;        // throws if the policy does not keep SUCCESS
+size_t countFailed() const;            // throws if the policy does not keep FAILED
+size_t countInterrupted() const;       // throws if the policy does not keep INTERRUPTED
+size_t countAll() const;               // every state kept by the policy
+```
+
+- All of them accept both the id returned by `send*` and the one given to the callbacks.
+- `status` never throws: a job that is not on disk (never sent, or processed and not kept) is `UNKNOWN`.
+- `sentAt` reads the time from the UUIDv7 id (UTC, millisecond precision); throws on an invalid id. It is `static`: `Pacchettino.sentAt(id)`.
+
+## Managing jobs
+
+```d
+bool   requeue(string id) const;
+size_t requeueAll(KeepPolicy which = KeepPolicy.FAILED | KeepPolicy.INTERRUPTED) const;
+size_t cleanup(KeepPolicy which = KeepPolicy.ALL, Duration olderThan = Duration.zero) const;
+```
+
+- `requeue(id)` moves a job from `failed/`, `interrupted/` or `success/` back to the queue; `false` if not found. `requeueAll(which)` does it for every job in the chosen directories and returns how many.
+- `cleanup(which, olderThan)` deletes kept jobs, only those whose file was last modified more than `olderThan` ago if given, and returns how many. `cleanup()` empties `success/`, `failed/` and `interrupted/`.
+
+```d
+queue.requeueAll(Pacchettino.KeepPolicy.INTERRUPTED);      // after a crash
+queue.cleanup(Pacchettino.KeepPolicy.SUCCESS, 7.days);     // keep one week of history
+```
+
+## Directory layout
+
+```
+baseDir/
+  scheduled/    <due ms>-raw-<uuid>, <due ms>-fle-<uuid>-<name>   delayed jobs
+  queued/       raw-<uuid>, fle-<uuid>-<name>                     waiting
+  processing/   <job>.<pid>/                                      taken by a consumer
+  success/      jobs that returned SUCCESS (if kept)
+  failed/       jobs that returned FAILED (if kept)
+  interrupted/  jobs of consumers that died (if kept)
+  tmp/          files being written
+```
+
+The files are the jobs: a `raw-` file contains the bytes, a `fle-` file is the file. They can be inspected with `ls`; do not write into these directories by hand, use `send*`.
+
+## Worked examples
+
+### A worker that uploads files, with retries and history
+
+```d
+import pacchettino;
+import core.time;
+import std.stdio;
+
+void main()
+{
+    auto queue = new Pacchettino("/var/spool/uploader");
+    queue.retryDelay = 1.minutes;
+
+    queue.onFileReceived = (string id, string name, string path) {
+        if (!networkUp()) return Pacchettino.Result.RETRY;
+        upload(path, name);
+        return Pacchettino.Result.SUCCESS;
+    };
+
+    // Jobs of a previous run that crashed: try them again
+    queue.requeueAll(Pacchettino.KeepPolicy.INTERRUPTED);
+
+    while (true)
+    {
+        queue.receiveOne(10.seconds);
+        queue.cleanup(Pacchettino.KeepPolicy.SUCCESS, 7.days);
+    }
+}
+```
+
+### Many consumers in one process
+
+```d
+import core.thread;
+
+auto queue = new Pacchettino("/var/spool/jobs");
+queue.onDataReceived = (string id, ubyte[] data) => handle(data);
+
+foreach (i; 0 .. 4)
+    new Thread({ while (true) queue.receiveOne(5.seconds); }).start();
+```
+
+Separate processes on the same directory work the same way.
+
+### A web server that hands slow work to a worker
+
+The request handler only calls `sendData`/`sendFile` and answers at once with the id; a separate worker program processes the job; the page asks for `status(id)` to show the progress.
+
+```d
+string id = queue.sendData(`{"user": 42, "report": "monthly"}`);
+// later
+with (Pacchettino.Status) final switch (queue.status(id))
+{
+    case SCHEDULED, QUEUED: return "waiting";
+    case PROCESSING:        return "working";
+    case SUCCESS:           return "done";
+    case FAILED, INTERRUPTED: return "failed";
+    case UNKNOWN:           return "unknown";
+}
+```
+
+## pacchettino.uuid
+
+```d
+string    UUIDv7();   ubyte[16] UUIDv7!ubyte();   // time ordered, used for job ids
+string    UUIDv4();   ubyte[16] UUIDv4!ubyte();   // random
+string    UUIDv5(string name, ubyte[16] namespace = ubyte[16].init);   // SHA-1
+string    UUIDv3(string name, ubyte[16] namespace = ubyte[16].init);   // MD5
+enum UUIDNamespace : ubyte[16] { DNS, URL, OID, X500 }
+```
+
+`UUIDv5` and `UUIDv3` also take `const(ubyte)[]` names, and have a `!ubyte` form. Strings are lowercase. UUIDv7 ids created by the same process are strictly increasing.
+
+## Limits
+
+- One machine, local filesystem.
+- POSIX only (Linux, macOS, BSD): no Windows.
+- No priorities (use two directories), no attempt limit, no job dependencies, no scheduling at a date (only a delay from now), no notifications: consumers poll.
+- File names up to 200 bytes (the filesystem allows 255 per name; pacchettino adds its prefixes).
+
+## Versions
+
+The last release is 1.0.3. It has the constructor, `KeepPolicy`, `Result`, `sendData`/`sendFile` without `delay`, `receive`/`receiveOne` returning `void`, `onDataReceived`/`onFileReceived`, and `isQueued`, `isProcessing`, `isSuccess`, `isFailed`, `isInterrupted` (accepting only the id returned by `send*`), with jobs taken in directory order when `randomize` is false. Everything else in this file is newer.

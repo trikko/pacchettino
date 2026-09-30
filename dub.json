@@ -1,9 +1,15 @@
 {
+	"name": "pacchettino",
+	"description": "File-based job queue for D: jobs survive crashes and restarts, safe with many producers and consumers across processes and threads. Delayed jobs, retries, status tracking, no server and no dependencies",
 	"authors": [
 		"Andrea Fontana"
 	],
 	"copyright": "Copyright © 2025-2026, Andrea Fontana",
-	"description": "A simple file-based queue system designed to be safe for concurrent use across multiple threads and processes.",
 	"license": "MIT",
-	"name": "pacchettino"
+	"homepage": "https://github.com/trikko/pacchettino",
+	"-ddoxTool": "scod",
+	"-ddoxFilterArgs": [
+		"--min-protection=Public",
+		"--only-documented"
+	]
 }

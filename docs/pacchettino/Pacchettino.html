@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="UTF-8"/>
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0"/>
+		<title>Class Pacchettino</title>
+		<link rel="stylesheet" href="../css/style.min.css"/>
+		<script type="text/javascript" src="../js/script.min.js"></script>
+	</head>
+	<body onload="setupDdox();">
+		<header></header>
+		<nav id="main-nav">
+			<div>
+				<noscript>
+					<p style="color: red">The search functionality needs JavaScript enabled</p>
+				</noscript>
+				<div id="symbolSearchPane" style="display: none">
+					<form action="#" method="GET">
+						<input id="symbolSearch" type="text" name="q" placeholder="Search for symbols" autocomplete="off" onchange="performSymbolSearch(24);" onkeypress="this.onchange();" onpaste="this.onchange();" oninput="this.onchange();" autofocus/>
+					</form>
+					<ul id="symbolSearchResults" class="symbolList" style="display: none"></ul><script type="application/javascript" src="../symbols.js"></script><script type="application/javascript">var symbolSearchRootDir = "../";
+document.getElementById('symbolSearchPane').style.display = 'block';</script>
+				</div>
+				<ul class="tree-view">
+					<li class="tree-view ">
+						<a class="package" href="#">pacchettino</a>
+				<ul class="tree-view">
+					<li>
+						<a class="module collapsed" href="../pacchettino/uuid.html">uuid</a>
+					</li>
+				</ul>
+					</li>
+					<li>
+						<a class="module selected" href="../pacchettino.html">pacchettino</a>
+				<ul class="tree-view">
+				<li class="tree-view collapsed">
+					<a class="toLower(to!string(Class))" href="../pacchettino/Pacchettino.html">Pacchettino</a>
+				</li>
+				</ul>
+					</li>
+				</ul>
+			</div>
+			<p id="main-nav-footer">
+				Built with<a href="https://github.com/MartinNowak/scod">scod</a>
+			</p>
+		</nav>
+		<div id="main-contents">
+			<div>
+				<h1>Class Pacchettino</h1><p>A simple file-based queue system designed to be safe for concurrent use across multiple threads and processes.
+</p>
+				<div class="prototype">
+					<code class="lang-d">
+						<div class="single-prototype">
+				<span class="kwd">class</span> <span class="typ">Pacchettino</span><span class="pun">;</span>
+						</div>
+					</code>
+				</div>
+				
+				<section><h2>Constructors</h2>
+					<table>
+						<col class="caption"/>
+						<tr>
+							<th>Name</th><th>Description</th>
+						</tr>
+						<tr>
+							<td>
+								<a href="../pacchettino/Pacchettino.this.html" class="public">
+									<code>this</code>
+								</a>
+								<span class="tableEntryAnnotation">(baseDir, keepPolicy)</span>
+							</td>
+							<td>Constructs a new Pacchettino instance.
+</td>
+						</tr>
+					</table>
+				</section>
+				<section><h2>Fields</h2>
+					<table>
+						<col class="caption"/>
+						<tr>
+							<th>Name</th><th>Type</th><th>Description</th>
+						</tr>
+						<tr>
+							<td>
+								<a href="../pacchettino/Pacchettino.onDataReceived.html" class="public"><code>onDataReceived</code></a>
+							</td>
+							<td class="typecol"><code class="prettyprint lang-d"><a href="../pacchettino/Pacchettino.Result.html"><span class="typ">Pacchettino<wbr/></span><span class="pun">.<wbr/></span><span class="typ">Result</span></a> <span class="kwd">delegate</span><span class="pun">(</span><span class="typ">string</span><span class="pun">, </span><span class="typ">ubyte</span><span class="pun">[]</span><span class="pun">)</span></code></td><td>Callback triggered when data is received.
+</td>
+						</tr>
+						<tr>
+							<td>
+								<a href="../pacchettino/Pacchettino.onFileReceived.html" class="public"><code>onFileReceived</code></a>
+							</td>
+							<td class="typecol"><code class="prettyprint lang-d"><a href="../pacchettino/Pacchettino.Result.html"><span class="typ">Pacchettino<wbr/></span><span class="pun">.<wbr/></span><span class="typ">Result</span></a> <span class="kwd">delegate</span><span class="pun">(</span><span class="typ">string</span><span class="pun">, </span><span class="typ">string</span><span class="pun">, </span><span class="typ">string</span><span class="pun">)</span></code></td><td>Callback triggered when a file is received.
+</td>
+						</tr>
+						<tr>
+							<td>
+								<a href="../pacchettino/Pacchettino.retryDelay.html" class="public"><code>retryDelay</code></a>
+							</td>
+							<td class="typecol"><code class="prettyprint lang-d"><span class="pln">core<wbr/></span><span class="pun">.</span><span class="pln">time<wbr/></span><span class="pun">.</span><span class="typ">Duration</span></code></td><td>How long to wait before processing again a job whose callback returned Result.RETRY.
+ Zero (default) queues it again immediately.
+</td>
+						</tr>
+					</table>
+				</section>
+				<section><h2>Methods</h2>
+					<table>
+						<col class="caption"/>
+						<tr>
+							<th>Name</th><th>Description</th>
+						</tr>
+						<tr>
+							<td>
+								<a href="../pacchettino/Pacchettino.cleanup.html" class="public">
+									<code>cleanup</code>
+								</a>
+								<span class="tableEntryAnnotation">(which, olderThan)</span>
+							</td>
+							<td>Removes processed jobs kept in the success, failed and/or interrupted directories.
+</td>
+						</tr>
+						<tr>
+							<td>
+								<a href="../pacchettino/Pacchettino.countAll.html" class="public">
+									<code>countAll</code>
+								</a>
+								<span class="tableEntryAnnotation">()</span>
+							</td>
+							<td>Counts the total number of jobs in all states (based on current keep policy).
+</td>
+						</tr>
+						<tr>
+							<td>
+								<a href="../pacchettino/Pacchettino.countFailed.html" class="public">
+									<code>countFailed</code>
+								</a>
+								<span class="tableEntryAnnotation">()</span>
+							</td>
+							<td>Counts the number of jobs that failed.
+</td>
+						</tr>
+						<tr>
+							<td>
+								<a href="../pacchettino/Pacchettino.countInterrupted.html" class="public">
+									<code>countInterrupted</code>
+								</a>
+								<span class="tableEntryAnnotation">()</span>
+							</td>
+							<td>Counts the number of jobs that were interrupted.
+</td>
+						</tr>
+						<tr>
+							<td>
+								<a href="../pacchettino/Pacchettino.countProcessing.html" class="public">
+									<code>countProcessing</code>
+								</a>
+								<span class="tableEntryAnnotation">()</span>
+							</td>
+							<td>Counts the number of jobs currently being processed.
+</td>
+						</tr>
+						<tr>
+							<td>
+								<a href="../pacchettino/Pacchettino.countQueued.html" class="public">
+									<code>countQueued</code>
+								</a>
+								<span class="tableEntryAnnotation">()</span>
+							</td>
+							<td>Counts the number of jobs currently queued.
+</td>
+						</tr>
+						<tr>
+							<td>
+								<a href="../pacchettino/Pacchettino.countScheduled.html" class="public">
+									<code>countScheduled</code>
+								</a>
+								<span class="tableEntryAnnotation">()</span>
+							</td>
+							<td>Counts the number of jobs scheduled (sent with a delay not yet expired).
+</td>
+						</tr>
+						<tr>
+							<td>
+								<a href="../pacchettino/Pacchettino.countSuccessful.html" class="public">
+									<code>countSuccessful</code>
+								</a>
+								<span class="tableEntryAnnotation">()</span>
+							</td>
+							<td>Counts the number of jobs that completed successfully.
+</td>
+						</tr>
+						<tr>
+							<td>
+								<a href="../pacchettino/Pacchettino.isFailed.html" class="public">
+									<code>isFailed</code>
+								</a>
+								<span class="tableEntryAnnotation">(id)</span>
+							</td>
+							<td>Checks if a job failed.
+</td>
+						</tr>
+						<tr>
+							<td>
+								<a href="../pacchettino/Pacchettino.isInterrupted.html" class="public">
+									<code>isInterrupted</code>
+								</a>
+								<span class="tableEntryAnnotation">(id)</span>
+							</td>
+							<td>Checks if a job was interrupted.
+</td>
+						</tr>
+						<tr>
+							<td>
+								<a href="../pacchettino/Pacchettino.isProcessing.html" class="public">
+									<code>isProcessing</code>
+								</a>
+								<span class="tableEntryAnnotation">(id)</span>
+							</td>
+							<td>Checks if a job is currently being processed.
+</td>
+						</tr>
+						<tr>
+							<td>
+								<a href="../pacchettino/Pacchettino.isQueued.html" class="public">
+									<code>isQueued</code>
+								</a>
+								<span class="tableEntryAnnotation">(id)</span>
+							</td>
+							<td>Checks if a job is queued.
+</td>
+						</tr>
+						<tr>
+							<td>
+								<a href="../pacchettino/Pacchettino.isScheduled.html" class="public">
+									<code>isScheduled</code>
+								</a>
+								<span class="tableEntryAnnotation">(id)</span>
+							</td>
+							<td>Checks if a job is scheduled (sent with a delay not yet expired).
+</td>
+						</tr>
+						<tr>
+							<td>
+								<a href="../pacchettino/Pacchettino.isSuccess.html" class="public">
+									<code>isSuccess</code>
+								</a>
+								<span class="tableEntryAnnotation">(id)</span>
+							</td>
+							<td>Checks if a job succeeded.
+</td>
+						</tr>
+						<tr>
+							<td>
+								<a href="../pacchettino/Pacchettino.receive.html" class="public">
+									<code>receive</code>
+								</a>
+								<span class="tableEntryAnnotation">(randomize)</span>
+							</td>
+							<td>Processes all available jobs in the queue.
+</td>
+						</tr>
+						<tr>
+							<td>
+								<a href="../pacchettino/Pacchettino.receiveOne.html" class="public">
+									<code>receiveOne</code>
+								</a>
+								<span class="tableEntryAnnotation">(randomize)</span>
+							</td>
+							<td>Processes a single job from the queue.
+</td>
+						</tr>
+						<tr>
+							<td>
+								<a href="../pacchettino/Pacchettino.receiveOne.html" class="public">
+									<code>receiveOne</code>
+								</a>
+								<span class="tableEntryAnnotation">(timeout, randomize, pollInterval)</span>
+							</td>
+							<td>Waits for a job and processes it.
+</td>
+						</tr>
+						<tr>
+							<td>
+								<a href="../pacchettino/Pacchettino.requeue.html" class="public">
+									<code>requeue</code>
+								</a>
+								<span class="tableEntryAnnotation">(id)</span>
+							</td>
+							<td>Moves a failed, interrupted or successful job back to the queue.
+</td>
+						</tr>
+						<tr>
+							<td>
+								<a href="../pacchettino/Pacchettino.requeueAll.html" class="public">
+									<code>requeueAll</code>
+								</a>
+								<span class="tableEntryAnnotation">(which)</span>
+							</td>
+							<td>Moves all jobs in the given directories back to the queue.
+</td>
+						</tr>
+						<tr>
+							<td>
+								<a href="../pacchettino/Pacchettino.sendData.html" class="public">
+									<code>sendData</code>
+								</a>
+								<span class="tableEntryAnnotation">(s, delay)</span>
+							</td>
+							<td>Sends a string to the queue.
+</td>
+						</tr>
+						<tr>
+							<td>
+								<a href="../pacchettino/Pacchettino.sendData.html" class="public">
+									<code>sendData</code>
+								</a>
+								<span class="tableEntryAnnotation">(s, delay)</span>
+							</td>
+							<td>Sends raw bytes to the queue.
+</td>
+						</tr>
+						<tr>
+							<td>
+								<a href="../pacchettino/Pacchettino.sendFile.html" class="public">
+									<code>sendFile</code>
+								</a>
+								<span class="tableEntryAnnotation">(filePath, copyFile, delay)</span>
+							</td>
+							<td>Sends a file to the queue.
+</td>
+						</tr>
+						<tr>
+							<td>
+								<a href="../pacchettino/Pacchettino.sentAt.html" class="public">
+									<code>sentAt</code>
+								</a>
+								<span class="tableEntryAnnotation">(id)</span>
+							</td>
+							<td>Returns the time a job was sent, extracted from its ID.
+</td>
+						</tr>
+						<tr>
+							<td>
+								<a href="../pacchettino/Pacchettino.status.html" class="public">
+									<code>status</code>
+								</a>
+								<span class="tableEntryAnnotation">(id)</span>
+							</td>
+							<td>Returns the status of a job. Unlike the is* methods, it never throws.
+</td>
+						</tr>
+					</table>
+				</section>
+				<section><h2>Enums</h2>
+					<table>
+						<col class="caption"/>
+						<tr>
+							<th>Name</th><th>Description</th>
+						</tr>
+						<tr>
+							<td>
+								<a href="../pacchettino/Pacchettino.KeepPolicy.html" class="public">
+									<code>KeepPolicy</code>
+								</a>
+							</td>
+							<td>Policy for keeping processed files.
+ Options can be combined using bitwise OR (e.g. SUCCESS | FAILED).
+</td>
+						</tr>
+						<tr>
+							<td>
+								<a href="../pacchettino/Pacchettino.Result.html" class="public">
+									<code>Result</code>
+								</a>
+							</td>
+							<td>Result of a job processing.
+</td>
+						</tr>
+						<tr>
+							<td>
+								<a href="../pacchettino/Pacchettino.Status.html" class="public">
+									<code>Status</code>
+								</a>
+							</td>
+							<td>Status of a job.
+</td>
+						</tr>
+					</table>
+				</section>
+			</div>
+			<footer>
+				<div id="license-info">
+					
+				</div>
+			</footer>
+		</div>
+	</body>
+</html>

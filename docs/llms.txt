@@ -1,0 +1,48 @@
+# pacchettino: file-based job queue for D
+
+pacchettino is a job queue for the D programming language made of plain directories on disk. Producers add jobs (some bytes, or a file), consumers in other processes or threads process them. Jobs are on disk before `send*` returns, each job goes to one consumer only, and jobs left half done by a crashed process are detected. No server, no database, no dependencies. POSIX only (Linux, macOS, BSD). MIT license.
+
+- Full reference: https://trikko.github.io/pacchettino/llms-full.txt
+- Rules for agents: https://trikko.github.io/pacchettino/AGENTS.md (as a skill: https://trikko.github.io/pacchettino/SKILL.md)
+- API documentation: https://trikko.github.io/pacchettino/
+- Source: https://github.com/trikko/pacchettino
+
+## Core Concepts
+
+- **Pacchettino**: `new Pacchettino(dir, keepPolicy = KeepPolicy.ALL)`. Every producer and consumer opens the same directory; it creates `scheduled/`, `queued/`, `processing/`, `success/`, `failed/`, `interrupted/`, `tmp/`.
+- **Sending**: `sendData(string or ubyte[], delay = Duration.zero)`, `sendFile(path, copyFile = true, delay = Duration.zero)`. Both return the job id, a UUIDv7 string.
+- **Receiving**: set `onDataReceived = (id, ubyte[] data) => Result` and `onFileReceived = (id, name, path) => Result`, then call `receiveOne(timeout)` in a loop (or `receiveOne()`, `receive()`). Callbacks run in the calling thread; the defaults return `FAILED`.
+- **Result**: `SUCCESS`, `FAILED` (both final), `RETRY` (queued again, after `retryDelay` if set). An exception from the callback is `FAILED`.
+- **Order**: random by default, FIFO with `randomize = false`.
+- **Crash recovery**: jobs of a dead consumer are moved to `interrupted/` by the next `receive*`; `requeueAll()` tries them again.
+- **Status**: `status(id)` → `Status.SCHEDULED/QUEUED/PROCESSING/SUCCESS/FAILED/INTERRUPTED/UNKNOWN`; `sentAt(id)`; `is*` and `count*` methods.
+- **KeepPolicy**: `NONE`, `SUCCESS`, `FAILED`, `INTERRUPTED`, `ALL` (combine with `|`): which processed jobs stay on disk. `cleanup(which, olderThan)` removes them.
+
+## Installation & Basic Usage
+
+`dub add pacchettino`. dmd or ldc2.
+
+```d
+import pacchettino;
+import core.time;
+
+// Producer
+auto queue = new Pacchettino("/var/spool/myapp");
+queue.sendFile("/tmp/video.mp4");
+queue.sendData("remind 42", 10.minutes);
+
+// Consumer (another program)
+auto queue = new Pacchettino("/var/spool/myapp");
+queue.onFileReceived = (string id, string name, string path) {
+    upload(path);
+    return Pacchettino.Result.SUCCESS;
+};
+queue.onDataReceived = (string id, ubyte[] data) => Pacchettino.Result.SUCCESS;
+
+while (true)
+    queue.receiveOne(5.seconds);
+```
+
+## Limits
+
+One machine only (crash detection uses local PIDs: no NFS or shared folders). No priorities, no attempt limit, no notifications (consumers poll), no Windows. File names up to 200 bytes.

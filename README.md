@@ -9,6 +9,9 @@ directories: one program sends jobs, another one (or many, in other processes
 or threads) processes them. Jobs are files on disk, so they survive crashes and
 reboots. No server, no database, no dependencies.
 
+**Documentation:** [API reference](https://trikko.github.io/pacchettino/) ·
+[for AI agents](#using-pacchettino-with-an-ai-agent) · `dub add pacchettino`
+
 ## Why
 
 A program often has to do something slow or unreliable that it should not wait
@@ -211,3 +214,55 @@ Pacchettino creates the following structure inside your base directory:
 - `failed/`: Jobs that returned `Result.FAILED`.
 - `interrupted/`: Jobs recovered from crashed processes.
 - `tmp/`: Temporary staging area for atomic writes.
+
+## Using pacchettino with an AI agent
+
+pacchettino is small and not well known, so it is barely in the training data
+of the models: a model left to guess writes code for another queue library, or
+invents one. Give it the reference instead:
+
+* [SKILL.md](https://trikko.github.io/pacchettino/SKILL.md): the rules that are
+  easiest to get wrong, as a skill. [AGENTS.md](https://trikko.github.io/pacchettino/AGENTS.md)
+  is the same text without the front matter, for tools that want a rules file
+  (`AGENTS.md`, `CLAUDE.md`, `.cursorrules`, ...).
+* [llms-full.txt](https://trikko.github.io/pacchettino/llms-full.txt): the whole API;
+  [llms.txt](https://trikko.github.io/pacchettino/llms.txt): a short overview.
+
+The easiest way: ask your agent to do it.
+
+> Install the skill at https://trikko.github.io/pacchettino/SKILL.md. It is the
+> reference for pacchettino, the D job queue I am using.
+
+Or by hand: a skill is a folder with `SKILL.md` in it (`llms-full.txt` next to
+it saves a download).
+
+| Tool | For all projects | For one project |
+|---|---|---|
+| Claude Code | `~/.claude/skills/pacchettino/` | `.claude/skills/pacchettino/` |
+| Antigravity (IDE, 2.0) | `~/.gemini/config/skills/pacchettino/` | `.agents/skills/pacchettino/` |
+| Antigravity CLI | `~/.gemini/antigravity-cli/skills/pacchettino/` | `.agents/skills/pacchettino/` |
+| Gemini CLI | `~/.gemini/skills/pacchettino/` | `.gemini/skills/pacchettino/` |
+| Codex | `~/.agents/skills/pacchettino/` | `.agents/skills/pacchettino/` |
+
+For example, for Claude Code:
+
+```sh
+mkdir -p ~/.claude/skills/pacchettino && cd ~/.claude/skills/pacchettino
+curl -fsSLO https://trikko.github.io/pacchettino/SKILL.md
+curl -fsSLO https://trikko.github.io/pacchettino/llms-full.txt
+```
+
+The skill is loaded when the task is about pacchettino or job queues in D; in
+Claude Code you can also call it with `/pacchettino`.
+
+## Development
+
+```sh
+dub test        # unit tests
+tools/docs.sh   # regenerate the documentation in docs/
+```
+
+The html reference in `docs/`, served by GitHub Pages, is generated from the
+comments in the source with `tools/docs.sh` (ddox with the scod skin).
+`docs/AGENTS.md`, `docs/llms.txt` and `docs/llms-full.txt` are written by hand;
+`docs/SKILL.md` is generated from `AGENTS.md`.

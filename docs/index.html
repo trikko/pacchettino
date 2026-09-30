@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="UTF-8"/>
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0"/>
+		<title>API documentation</title>
+		<link rel="stylesheet" href="./css/style.min.css"/>
+		<script type="text/javascript" src="./js/script.min.js"></script>
+	</head>
+	<body onload="setupDdox();">
+		<header></header>
+		<nav id="main-nav">
+			<div>
+				<noscript>
+					<p style="color: red">The search functionality needs JavaScript enabled</p>
+				</noscript>
+				<div id="symbolSearchPane" style="display: none">
+					<form action="#" method="GET">
+						<input id="symbolSearch" type="text" name="q" placeholder="Search for symbols" autocomplete="off" onchange="performSymbolSearch(24);" onkeypress="this.onchange();" onpaste="this.onchange();" oninput="this.onchange();" autofocus/>
+					</form>
+					<ul id="symbolSearchResults" class="symbolList" style="display: none"></ul><script type="application/javascript" src="./symbols.js"></script><script type="application/javascript">var symbolSearchRootDir = "./";
+document.getElementById('symbolSearchPane').style.display = 'block';</script>
+				</div>
+				<ul class="tree-view">
+					<li class="tree-view ">
+						<a class="package" href="#">pacchettino</a>
+				<ul class="tree-view">
+					<li>
+						<a class="module collapsed" href="./pacchettino/uuid.html">uuid</a>
+					</li>
+				</ul>
+					</li>
+					<li>
+						<a class="module collapsed" href="./pacchettino.html">pacchettino</a>
+					</li>
+				</ul>
+			</div>
+			<p id="main-nav-footer">
+				Built with<a href="https://github.com/MartinNowak/scod">scod</a>
+			</p>
+		</nav>
+		<div id="main-contents">
+			<div>
+				<h1>API documentation</h1>
+				<table>
+					<col class="caption"/>
+					<tr>
+						<th>Module</th><th>Description</th>
+					</tr>
+				<tr>
+					<td>
+						<a href="./pacchettino/uuid.html">pacchettino.uuid</a>
+					</td>
+					<td>
+						UUID generation (versions 3, 4, 5 and 7), used by pacchettino for job ids.
+
+					</td>
+				</tr>
+				<tr>
+					<td>
+						<a href="./pacchettino.html">pacchettino</a>
+					</td>
+					<td>
+						A job queue made of plain directories: one program sends jobs, another one
+ (or many, in other processes or threads) processes them.
+
+					</td>
+				</tr>
+				</table>
+			</div>
+			<footer>
+				<div id="license-info"></div>
+			</footer>
+		</div>
+	</body>
+</html>

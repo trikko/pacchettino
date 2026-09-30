@@ -1,3 +1,45 @@
+/**
+ * A job queue made of plain directories: one program sends jobs, another one
+ * (or many, in other processes or threads) processes them.
+ *
+ * A job is either some bytes (`sendData`) or a file (`sendFile`). It is written
+ * to disk before `send*` returns, so nothing is lost if a program stops or
+ * crashes, and a job left half done by a process that died is detected and
+ * moved to `interrupted/`. Each job is given to one consumer only, even with
+ * many consumers on the same directory. No server, no database, no dependencies.
+ *
+ * Example:
+ * ---
+ * // Producer
+ * auto queue = new Pacchettino("/var/spool/myapp");
+ * queue.sendFile("video.mp4");
+ * queue.sendData("resize photo 42", 10.minutes);   // not before 10 minutes
+ *
+ * // Consumer, in another program
+ * auto queue = new Pacchettino("/var/spool/myapp");
+ * queue.onFileReceived = (id, name, path) {
+ *     upload(path);
+ *     return Pacchettino.Result.SUCCESS;   // or FAILED, or RETRY
+ * };
+ *
+ * while (true) queue.receiveOne(5.seconds);
+ * ---
+ *
+ * Where to start:
+ * $(UL
+ *   $(LI `Pacchettino.sendData` and `Pacchettino.sendFile` — adding jobs, now or with a delay;)
+ *   $(LI `Pacchettino.onDataReceived`, `Pacchettino.onFileReceived` and `Pacchettino.receiveOne` — processing them;)
+ *   $(LI `Pacchettino.status`, `Pacchettino.requeue` and `Pacchettino.cleanup` — following and managing them;)
+ *   $(LI `Pacchettino.KeepPolicy` — which processed jobs stay on disk.)
+ * )
+ *
+ * Works on POSIX systems (Linux, macOS, BSD).
+ *
+ * See_Also:
+ *   $(LINK2 https://github.com/trikko/pacchettino, the README) for a guided tour,
+ *   $(LINK2 https://trikko.github.io/pacchettino/llms-full.txt, llms-full.txt) for
+ *   the whole API in one file.
+ */
 module pacchettino;
 
 import pacchettino.uuid;
@@ -112,6 +154,7 @@ class Pacchettino
 	 *
 	 * Params:
 	 *   s = The string to send.
+	 *   delay = How long to wait before the job can be processed.
 	 *
 	 * Returns:
 	 *   The ID of the queued job.
@@ -802,25 +845,24 @@ class Pacchettino
 	/**
 	 * Callback triggered when a file is received.
 	 *
-	 * Params:
-	 *   id = The job ID.
-	 *   name = The name of the file.
-	 *   path = The path to the file on disk.
+	 * It is called with the job ID (`"fle-<uuid>-<name>"`: `status`, `requeue`, `sentAt` and the
+	 * `is*` methods accept it), the original name of the file and its path on disk. The file
+	 * can be read, but should not be moved or deleted: it is moved to `success/`, `failed/` or
+	 * back to the queue according to the returned `Result`, and deleted if not kept.
+	 * An exception thrown by the callback counts as `Result.FAILED`.
 	 *
-	 * Returns:
-	 *   The result of the processing.
+	 * The default callback returns `Result.FAILED`.
 	 */
 	Result delegate(string id, string name, string path) onFileReceived;
 
 	/**
 	 * Callback triggered when data is received.
 	 *
-	 * Params:
-	 *   id = The job ID.
-	 *   data = The received data.
+	 * It is called with the job ID (`"raw-<uuid>"`: `status`, `requeue`, `sentAt` and the `is*`
+	 * methods accept it) and the bytes sent with `sendData`. An exception thrown by the
+	 * callback counts as `Result.FAILED`.
 	 *
-	 * Returns:
-	 *   The result of the processing.
+	 * The default callback returns `Result.FAILED`.
 	 */
 	Result delegate(string id, ubyte[] data) onDataReceived;
 
