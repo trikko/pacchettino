@@ -49,12 +49,14 @@ import std.random 	: randomShuffle;
 import std.string 	: representation, split, join, lastIndexOf;
 import std.conv 		: to;
 import std.array 		: array;
-import std.algorithm : startsWith, sort;
+import std.algorithm : startsWith, endsWith, sort;
 import std.range 		: walkLength;
 import std.logger 	: warning;
 import std.process  : thisProcessID;
 import std.datetime : Clock, Duration, SysTime, msecs;
 import core.sync.mutex : Mutex;
+import core.time : MonoTime;
+import std.algorithm : map, filter, reverse;
 version(Posix)
 {
 	import core.sys.posix.signal : kill;
@@ -66,7 +68,7 @@ version(Posix)
 	// kill(pid, 0) returns 0 if the process exists; EPERM means it exists but is not ours
 	private bool isProcessAlive(int pid) { return kill(pid, 0) == 0 || errno == EPERM; }
 
-	private void moveFile(string from, string to, bool durable = false) { std.file.rename(from, to); }
+	private void moveFile(string from, string to, bool durable = false, bool retryBusy = true) { std.file.rename(from, to); }
 
 	import core.sys.posix.fcntl : open, O_RDONLY, O_RDWR, O_CREAT, O_EXCL;
 
@@ -176,8 +178,9 @@ else version(Windows)
 	}
 
 	// Antivirus and indexers keep new files open for a moment, and Windows cannot rename an open file:
-	// try again a few times before giving up.
-	private void moveFile(string from, string to, bool durable = false)
+	// try again a few times before giving up (unless retryBusy is false: taking a job another consumer
+	// is taking right now is pointless).
+	private void moveFile(string from, string to, bool durable = false, bool retryBusy = true)
 	{
 		import core.thread : Thread;
 		import std.utf : toUTF16z;
@@ -214,7 +217,7 @@ else version(Windows)
 			catch (FileException e)
 			{
 				bool busy = e.errno == ERROR_ACCESS_DENIED || e.errno == ERROR_SHARING_VIOLATION || e.errno == ERROR_LOCK_VIOLATION;
-				if (!busy || attempt == 5) throw e;
+				if (!busy || !retryBusy || attempt == 5) throw e;
 				Thread.sleep((10 << attempt).msecs);
 			}
 		}
@@ -303,7 +306,12 @@ import std.file, std.path;
 private __gshared bool[string] activeJobs;
 private __gshared Mutex activeJobsMutex;
 
-shared static this() { activeJobsMutex = new Mutex(); }
+// Jobs listed by receiveOne and not taken yet, by queue and order; last maintenance of each queue
+private __gshared string[][string] listed_;
+private __gshared MonoTime[string] lastMaintenance;
+private __gshared Mutex listedMutex;
+
+shared static this() { activeJobsMutex = new Mutex(); listedMutex = new Mutex(); }
 
 // With CrashDetection.LOCK_FILE every consumer process holds a lock on <baseDir>/owners/<token> while
 // it is alive: its jobs are in processing/<job>.<token>. A job whose owner lock can be taken belongs to
@@ -469,8 +477,10 @@ class Pacchettino
 	this(string baseDir, KeepPolicy keepPolicy = KeepPolicy.ALL) {
 		// The paths of the jobs can exceed MAX_PATH
 		version(Windows) baseDir = longPath(baseDir);
+		else baseDir = buildNormalizedPath(baseDir);
 
 		this.baseDir = baseDir;
+		this.root = baseDir.endsWith(dirSeparator) ? baseDir : baseDir ~ dirSeparator;
 		this.onFileReceived = (id, name, path) => Result.FAILED;
 		this.onDataReceived = (id, data) => Result.FAILED;
 		this.keepPolicy = keepPolicy;
@@ -512,7 +522,7 @@ class Pacchettino
 	string sendData(const ubyte[] s, Duration delay = Duration.zero) const
 	{
 		auto id = UUIDv7!string();
-		auto tmp = buildNormalizedPath(baseDir, "tmp", id);
+		auto tmp = pathIn("tmp", id);
 		auto path = enqueuePath("raw-" ~ id, delay);
 
 		try
@@ -557,7 +567,7 @@ class Pacchettino
 			throw new Exception("File name too long (max " ~ maxFileNameLength.to!string ~ " bytes): " ~ filePath.baseName);
 
 		auto id = UUIDv7!string();
-		auto tmp = buildNormalizedPath(baseDir, "tmp", id);
+		auto tmp = pathIn("tmp", id);
 		auto path = enqueuePath("fle-" ~ id ~ "-" ~ filePath.baseName, delay);
 
 		if (copyFile)
@@ -600,17 +610,18 @@ class Pacchettino
 	{
 		import std.format : format;
 
-		if (delay <= Duration.zero) return buildNormalizedPath(baseDir, "queued", jobName);
-		return buildNormalizedPath(baseDir, "scheduled", format("%0*d-%s", dueLength, nowMsecs + delay.total!"msecs", jobName));
+		if (delay <= Duration.zero) return pathIn("queued", jobName);
+		return pathIn("scheduled", format("%0*d-%s", dueLength, nowMsecs + delay.total!"msecs", jobName));
 	}
 
 	// Moves the scheduled jobs whose delay expired to the queue
-	private void promoteScheduled() const
+	private size_t promoteScheduled() const
 	{
-		auto entries = dirEntries(buildNormalizedPath(baseDir, "scheduled"), "*-{fle,raw}-*", SpanMode.shallow).array;
+		auto entries = dirEntries(pathIn("scheduled"), "*-{fle,raw}-*", SpanMode.shallow).array;
 		entries.sort!((a, b) => a.baseName < b.baseName);
 
 		long now = nowMsecs;
+		size_t promoted = 0;
 
 		foreach (entry; entries)
 		{
@@ -624,10 +635,13 @@ class Pacchettino
 			// Sorted by due time: nothing else is ready
 			if (due > now) break;
 
-			try commitMove(entry.name, buildNormalizedPath(baseDir, "queued", name[duePrefixLength..$]));
+			try { commitMove(entry.name, pathIn("queued", name[duePrefixLength..$])); promoted++; }
 			catch (Exception e) {} // Promoted by someone else in the meanwhile
 		}
+
+		return promoted;
 	}
+
 
 	// Accepts both the id returned by send* and the one passed to callbacks ("raw-<id>" or "fle-<id>-<name>")
 	private static string jobKey(string id)
@@ -646,7 +660,7 @@ class Pacchettino
 		bool scheduled = directory == "scheduled";
 		size_t skip = (scheduled ? duePrefixLength : 0) + 4;
 
-		foreach (f; dirEntries(buildNormalizedPath(baseDir, directory), scheduled ? "*-{fle,raw}-*" : "{fle,raw}-*", SpanMode.shallow))
+		foreach (f; dirEntries(pathIn(directory), scheduled ? "*-{fle,raw}-*" : "{fle,raw}-*", SpanMode.shallow))
 			if (f.baseName.length > skip && f.baseName[skip..$].startsWith(key))
 				return f.name;
 
@@ -657,7 +671,7 @@ class Pacchettino
 
 	private size_t countIn(string directory) const
 	{
-		return dirEntries(buildNormalizedPath(baseDir, directory), "{fle,raw}-*", SpanMode.shallow).walkLength;
+		return dirEntries(pathIn(directory), "{fle,raw}-*", SpanMode.shallow).walkLength;
 	}
 
 	/**
@@ -822,7 +836,7 @@ class Pacchettino
 	 */
 	size_t countScheduled() const
 	{
-		return dirEntries(buildNormalizedPath(baseDir, "scheduled"), "*-{fle,raw}-*", SpanMode.shallow).walkLength;
+		return dirEntries(pathIn("scheduled"), "*-{fle,raw}-*", SpanMode.shallow).walkLength;
 	}
 
 	/**
@@ -900,7 +914,7 @@ class Pacchettino
 			string path = findJob(id, dir);
 			if (path is null) continue;
 
-			try { commitMove(path, buildNormalizedPath(baseDir, "queued", path.baseName)); return true; }
+			try { commitMove(path, pathIn("queued", path.baseName)); return true; }
 			catch (Exception e) {} // Moved by someone else in the meanwhile
 		}
 
@@ -924,9 +938,9 @@ class Pacchettino
 		{
 			if (!(which & flag)) continue;
 
-			foreach (entry; dirEntries(buildNormalizedPath(baseDir, dir), "{fle,raw}-*", SpanMode.shallow).array)
+			foreach (entry; dirEntries(pathIn(dir), "{fle,raw}-*", SpanMode.shallow).array)
 			{
-				try { commitMove(entry.name, buildNormalizedPath(baseDir, "queued", entry.baseName)); moved++; }
+				try { commitMove(entry.name, pathIn("queued", entry.baseName)); moved++; }
 				catch (Exception e) {} // Moved by someone else in the meanwhile
 			}
 		}
@@ -953,7 +967,7 @@ class Pacchettino
 		{
 			if (!(which & flag)) continue;
 
-			foreach (entry; dirEntries(buildNormalizedPath(baseDir, dir), "{fle,raw}-*", SpanMode.shallow).array)
+			foreach (entry; dirEntries(pathIn(dir), "{fle,raw}-*", SpanMode.shallow).array)
 			{
 				try
 				{
@@ -989,7 +1003,7 @@ class Pacchettino
 	 * Returns:
 	 *   True if a job was processed, false if the queue was empty.
 	 */
-	bool receiveOne(bool randomize = true) const { return receiveImpl(randomize, 1) > 0; }
+	bool receiveOne(bool randomize = true) const { return receiveNext(randomize); }
 
 	/**
 	 * Waits for a job and processes it.
@@ -1027,7 +1041,7 @@ class Pacchettino
 	 */
 	private void recoverStalledJobs() const
 	{
-		auto processingDirs = dirEntries(buildNormalizedPath(baseDir, "processing"), SpanMode.shallow).array;
+		auto processingDirs = dirEntries(pathIn("processing"), SpanMode.shallow).array;
 		int myPid = thisProcessID;
 		string myToken = currentToken(baseDir);
 		bool lockFiles = myToken !is null;
@@ -1075,10 +1089,10 @@ class Pacchettino
 				try
 				{
 					foreach (entry; dirEntries(dir, SpanMode.shallow))
-						try moveFile(entry.name, buildNormalizedPath(baseDir, "interrupted", jobName), durable);
+						try moveFile(entry.name, pathIn("interrupted", jobName), durable);
 						catch (Exception e) {}
 
-					if (durable) syncDir(buildNormalizedPath(baseDir, "interrupted"));
+					if (durable) syncDir(pathIn("interrupted"));
 				}
 				catch (Exception e) {}
 			}
@@ -1089,7 +1103,7 @@ class Pacchettino
 		// Lock files of owners that died without jobs left
 		if (lockFiles) try
 		{
-			foreach (entry; dirEntries(buildNormalizedPath(baseDir, "owners"), SpanMode.shallow).array)
+			foreach (entry; dirEntries(pathIn("owners"), SpanMode.shallow).array)
 				if (entry.baseName != myToken && isToken(entry.baseName))
 					try isOwnerAlive(baseDir, entry.baseName); catch (Exception e) {}
 		}
@@ -1097,118 +1111,238 @@ class Pacchettino
 	}
 
 
+	// receive(): every job queued now
 	private size_t receiveImpl(bool randomize = true, size_t maxFiles = 0) const
 	{
-		// How our jobs are marked. The token is registered before looking for orphans, so that our own
-		// jobs are never taken for someone else's.
-		string myOwner = crashDetection == CrashDetection.LOCK_FILE ? ownerToken(baseDir) : thisProcessID.to!string;
+		string owner = jobOwner();
 
 		// Before processing new files, check for orphan files and expired delays
-		recoverStalledJobs();
-		promoteScheduled();
-
-		auto files = dirEntries(buildNormalizedPath(baseDir, "queued"), "{fle,raw}-*", SpanMode.shallow).array;
-
-		// UUIDv7 ids are time ordered: sorting by id gives FIFO order
-		if (randomize) files = randomShuffle(files).array;
-		else files.sort!((a, b) => a.baseName[4..$] < b.baseName[4..$]);
+		maintenance();
 
 		size_t processed = 0;
 
-		foreach (file; files)
+		foreach (id; listQueued(randomize))
 		{
-			if (maxFiles > 0 && processed >= maxFiles)
-				break;
-
-			Result result = Result.FAILED;
-			string id = file.baseName;
-			bool isFile = id.startsWith("fle-");
-			string name = "raw";
-
-			if (isFile)
-			{
-				auto parts = id.split("-");
-
-				// Malformed name, not a valid job
-				if (parts.length < 7) continue;
-
-				name = parts[6..$].join("-");
-			}
-
-			// Unique directory name with the owner: id.pid or id.token
-			string processingDirName = id ~ "." ~ myOwner;
-			string processingDirPath = buildNormalizedPath(baseDir, "processing", processingDirName);
-			string path = buildNormalizedPath(processingDirPath, name);
-
-			// Already processed by someone else
-			if (!file.exists)
-				continue;
-
-			// Lock between threads of this process
-			{
-				activeJobsMutex.lock();
-				scope(exit) activeJobsMutex.unlock();
-				if (processingDirName in activeJobs) continue;
-				activeJobs[processingDirName] = true;
-			}
-
-			scope(exit)
-			{
-				activeJobsMutex.lock();
-				activeJobs.remove(processingDirName);
-				activeJobsMutex.unlock();
-			}
-
-			// A lock on the directory is needed
-			try { mkdir(processingDirPath); }
-			catch (Exception e) { continue; }
-
-			try { moveFile(file, path); }
-			catch (Exception e) { try { rmdirRecurse(processingDirPath); } catch (Exception) {} continue; }
-
-			processed++;
-
-			if (isFile)
-			{
-				version(Windows) string userPath = shortPath(path);
-				else string userPath = path;
-
-				try {	result = onFileReceived(id, name, userPath); }
-				catch (Exception e) { result = Result.FAILED; }
-
-				if (!path.exists && keepPolicy != KeepPolicy.NONE)
-				{
-					warning("File ", path, " was moved or deleted by the user callback. It should be kept in the processing directory.");
-				}
-			}
-			else
-			{
-				try {
-					auto data = cast(ubyte[])std.file.read(path);
-					result = onDataReceived(id, data);
-				}
-				catch (Exception e) { result = Result.FAILED; }
-			}
-
-			try {
-				if (result == Result.FAILED && (keepPolicy & KeepPolicy.FAILED)) commitMove(path, buildNormalizedPath(baseDir, "failed", id));
-				else if (result == Result.SUCCESS && (keepPolicy & KeepPolicy.SUCCESS)) commitMove(path, buildNormalizedPath(baseDir, "success", id));
-				else if (result == Result.RETRY) commitMove(path, enqueuePath(id, retryDelay));
-			}
-			catch (Exception e) { warning("Pacchettino rename error: ", e.msg); }
-
-			try
-			{
-				rmdirRecurse(processingDirPath);
-
-				// A job not kept must not come back after a power cut
-				if (durable) syncDir(buildNormalizedPath(baseDir, "processing"));
-			}
-			catch (Exception e) { warning("Pacchettino cleanup error: ", e.msg); }
+			if (maxFiles > 0 && processed >= maxFiles) break;
+			if (processJob(id, owner)) processed++;
 		}
 
 		return processed;
 	}
+
+	// receiveOne(): the jobs listed are kept, shared by the threads of this process, and taken one at
+	// a time: the directory is listed again only when they are over. Listing it for every job would make
+	// each receiveOne as slow as the queue is long.
+	private bool receiveNext(bool randomize) const
+	{
+		string owner = jobOwner();
+		string key = baseDir ~ (randomize ? "\0random" : "\0fifo");
+
+		// Orphans and expired delays: at most every 100 ms. Jobs promoted to the queue are older than
+		// the ones listed: list again.
+		if (maintenanceDue() && maintenance()) dropListed();
+
+		bool listed = false;
+
+		while (true)
+		{
+			string id;
+
+			synchronized (listedMutex)
+			{
+				auto jobs = key in listed_;
+
+				if (jobs is null || (*jobs).length == 0)
+				{
+					if (listed) return false;
+
+					// Reversed: the next job is at the end
+					auto fresh = listQueued(randomize);
+					fresh.reverse();
+					listed_[key] = fresh;
+					listed = true;
+
+					jobs = key in listed_;
+					if ((*jobs).length == 0) return false;
+				}
+
+				id = (*jobs)[$ - 1];
+				*jobs = (*jobs)[0 .. $ - 1];
+			}
+
+			if (processJob(id, owner)) return true;
+		}
+	}
+
+	// How our jobs are marked. The token is registered before looking for orphans, so that our own
+	// jobs are never taken for someone else's.
+	private string jobOwner() const
+	{
+		return crashDetection == CrashDetection.LOCK_FILE ? ownerToken(baseDir) : thisProcessID.to!string;
+	}
+
+	// Names of the queued jobs, in the order they should be processed
+	private string[] listQueued(bool randomize) const
+	{
+		auto ids = jobNames(pathIn("queued"));
+
+		// UUIDv7 ids are time ordered: sorting by id gives FIFO order
+		if (randomize) ids.randomShuffle();
+		else ids.sort!((a, b) => a[4..$] < b[4..$]);
+
+		return ids;
+	}
+
+	// Names of the jobs in a directory (fle-* and raw-*)
+	private static string[] jobNames(string dir)
+	{
+		bool isJob(const(char)[] name) { return name.length > 4 && (name[0..4] == "fle-" || name[0..4] == "raw-"); }
+
+		// Only the names are needed: much faster than dirEntries, which builds a path for each entry
+		version(Posix)
+		{
+			import core.sys.posix.dirent : opendir, readdir, closedir;
+			import core.stdc.string : strlen;
+			import std.string : toStringz;
+			import std.exception : ErrnoException;
+
+			auto d = opendir(dir.toStringz);
+			if (d is null) throw new ErrnoException("Cannot list " ~ dir);
+			scope(exit) closedir(d);
+
+			string[] names;
+
+			while (auto entry = readdir(d))
+			{
+				auto name = entry.d_name.ptr[0 .. strlen(entry.d_name.ptr)];
+				if (isJob(name)) names ~= name.idup;
+			}
+
+			return names;
+		}
+		else return dirEntries(dir, SpanMode.shallow).map!(f => f.baseName).filter!(n => isJob(n)).array;
+	}
+
+	// Jobs listed by receiveOne are forgotten: listed again at the next call (e.g. after a promotion)
+	private void dropListed() const
+	{
+		synchronized (listedMutex)
+		{
+			listed_.remove(baseDir ~ "\0random");
+			listed_.remove(baseDir ~ "\0fifo");
+		}
+	}
+
+	private bool maintenanceDue() const
+	{
+		import core.time : MonoTime;
+
+		synchronized (listedMutex)
+		{
+			auto last = baseDir in lastMaintenance;
+			return last is null || MonoTime.currTime - *last >= 100.msecs;
+		}
+	}
+
+	// Recovers the orphans and promotes the expired delays. True if some jobs were queued.
+	private bool maintenance() const
+	{
+		import core.time : MonoTime;
+
+		synchronized (listedMutex) lastMaintenance[baseDir] = MonoTime.currTime;
+
+		recoverStalledJobs();
+		return promoteScheduled() > 0;
+	}
+
+	// Takes the job, gives it to the callback, and moves it according to the result.
+	// False if the job was not taken: already taken by someone else, or not a valid job.
+	private bool processJob(string id, string owner) const
+	{
+		Result result = Result.FAILED;
+		bool isFile = id.startsWith("fle-");
+		string name = "raw";
+
+		// fle-<uuid>-<name>
+		if (isFile)
+		{
+			if (id.length <= jobNameOverhead || id[jobNameOverhead - 1] != '-') return false;
+			name = id[jobNameOverhead .. $];
+		}
+
+		// Unique directory name with the owner: id.pid or id.token
+		string processingDirName = id ~ "." ~ owner;
+		string processingDirPath = pathIn("processing", processingDirName);
+		string path = processingDirPath ~ dirSeparator ~ name;
+
+		// Already taken by someone else: one stat, cheaper than trying to take it
+		string queued = pathIn("queued", id);
+		if (!queued.exists) return false;
+
+		// Lock between threads of this process
+		synchronized (activeJobsMutex)
+		{
+			if (processingDirName in activeJobs) return false;
+			activeJobs[processingDirName] = true;
+		}
+
+		scope(exit) synchronized (activeJobsMutex) activeJobs.remove(processingDirName);
+
+		// A lock on the directory is needed
+		try { mkdir(processingDirPath); }
+		catch (Exception e) { return false; }
+
+		// The lock between processes: only one can move the job out of the queue
+		try { moveFile(queued, path, false, false); }
+		catch (Exception e) { try { rmdir(processingDirPath); } catch (Exception) {} return false; }
+
+		if (isFile)
+		{
+			version(Windows) string userPath = shortPath(path);
+			else string userPath = path;
+
+			try {	result = onFileReceived(id, name, userPath); }
+			catch (Exception e) { result = Result.FAILED; }
+
+			if (!path.exists && keepPolicy != KeepPolicy.NONE)
+			{
+				warning("File ", path, " was moved or deleted by the user callback. It should be kept in the processing directory.");
+			}
+		}
+		else
+		{
+			try {
+				auto data = cast(ubyte[])std.file.read(path);
+				result = onDataReceived(id, data);
+			}
+			catch (Exception e) { result = Result.FAILED; }
+		}
+
+		bool moved = false;
+
+		try {
+			if (result == Result.FAILED && (keepPolicy & KeepPolicy.FAILED)) { commitMove(path, pathIn("failed", id)); moved = true; }
+			else if (result == Result.SUCCESS && (keepPolicy & KeepPolicy.SUCCESS)) { commitMove(path, pathIn("success", id)); moved = true; }
+			else if (result == Result.RETRY) { commitMove(path, enqueuePath(id, retryDelay)); moved = true; }
+		}
+		catch (Exception e) { warning("Pacchettino rename error: ", e.msg); }
+
+		try
+		{
+			// Not kept
+			if (!moved) try std.file.remove(path); catch (Exception e) {}
+
+			try rmdir(processingDirPath);
+			catch (Exception e) rmdirRecurse(processingDirPath); // Something else was left inside
+
+			// A job not kept must not come back after a power cut
+			if (durable && !moved) syncDir(pathIn("processing"));
+		}
+		catch (Exception e) { warning("Pacchettino cleanup error: ", e.msg); }
+
+		return true;
+	}
+
 
 	/**
 	 * Callback triggered when a file is received.
@@ -1261,5 +1395,11 @@ class Pacchettino
 	Duration retryDelay = Duration.zero;
 
 	private string baseDir;
+	private string root; // baseDir with a trailing separator
+
+	// baseDir is normalized once, in the constructor: the other paths are joined without normalizing
+	// them again, which is much faster (the names of the jobs never contain separators)
+	private string pathIn(string dir) const { return root ~ dir; }
+	private string pathIn(string dir, string name) const { return root ~ dir ~ dirSeparator ~ name; }
 	private KeepPolicy keepPolicy;
 }

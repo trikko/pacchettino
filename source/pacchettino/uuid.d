@@ -191,11 +191,20 @@ private:
 
 string formatUUID(ubyte[16] uuid)
 {
-	import std.format : format;
-	import std.digest : toHexString, LetterCase;
+	enum hex = "0123456789abcdef";
 
-	char[32] tmp = uuid.toHexString!(LetterCase.lower);
-	return format("%s-%s-%s-%s-%s", tmp[0..8], tmp[8..12], tmp[12..16], tmp[16..20], tmp[20..$]);
+	char[36] result;
+	size_t pos = 0;
+
+	foreach (i, b; uuid)
+	{
+		// xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+		if (i == 4 || i == 6 || i == 8 || i == 10) result[pos++] = '-';
+		result[pos++] = hex[b >> 4];
+		result[pos++] = hex[b & 0x0f];
+	}
+
+	return result.idup;
 }
 
 void randomBytes(ubyte[] buffer)
