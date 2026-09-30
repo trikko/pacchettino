@@ -44,6 +44,19 @@ class Pacchettino
 	}
 
 	/**
+	 * Status of a job.
+	 */
+	enum Status
+	{
+		UNKNOWN,     /// Job not found (never sent, or not kept by the keep policy)
+		QUEUED,      /// Job is waiting to be processed
+		PROCESSING,  /// Job is being processed
+		SUCCESS,     /// Job completed successfully
+		FAILED,      /// Job failed
+		INTERRUPTED  /// Job was interrupted by a crashed process
+	}
+
+	/**
 	 * Policy for keeping processed files.
 	 * Options can be combined using bitwise OR (e.g. SUCCESS | FAILED).
 	 */
@@ -354,6 +367,47 @@ class Pacchettino
 		if (keepPolicy & KeepPolicy.INTERRUPTED) total += countInterrupted();
 
 		return total;
+	}
+
+	/**
+	 * Returns the status of a job. Unlike the is* methods, it never throws.
+	 *
+	 * Params:
+	 *   id = The job ID.
+	 *
+	 * Returns:
+	 *   The job status, or Status.UNKNOWN if the job is not found.
+	 */
+	Status status(string id) const
+	{
+		// Checked following the job lifecycle, so a job moving forward in the meanwhile is not missed
+		if (isInDirectory(id, "queued")) return Status.QUEUED;
+		if (isInDirectory(id, "processing")) return Status.PROCESSING;
+		if (isInDirectory(id, "success")) return Status.SUCCESS;
+		if (isInDirectory(id, "failed")) return Status.FAILED;
+		if (isInDirectory(id, "interrupted")) return Status.INTERRUPTED;
+		return Status.UNKNOWN;
+	}
+
+	/**
+	 * Returns the time a job was sent, extracted from its ID.
+	 *
+	 * Params:
+	 *   id = The job ID.
+	 *
+	 * Throws:
+	 *   Exception if the ID is not valid.
+	 */
+	static SysTime sentAt(string id)
+	{
+		import std.datetime : UTC, unixTimeToStdTime;
+		import std.string : replace;
+
+		string hex = jobKey(id);
+		if (hex.length < 36 || hex[14] != '7') throw new Exception("Invalid job id: " ~ id);
+
+		long msecs = hex[0..13].replace("-", "").to!long(16);
+		return SysTime(unixTimeToStdTime(msecs / 1000) + (msecs % 1000) * 10_000, UTC());
 	}
 
 	/**

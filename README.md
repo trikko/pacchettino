@@ -44,13 +44,14 @@ void main()
     writeln("Sent file job: ", id);
 
     // You can check the status of the job
-    if (queue.isQueued(id)) writeln("Job is queued");
-    if (queue.isProcessing(id)) writeln("Job is being processed");
+    // (QUEUED, PROCESSING, SUCCESS, FAILED, INTERRUPTED or UNKNOWN)
+    writeln("Job status: ", queue.status(id));
+    writeln("Sent at: ", Pacchettino.sentAt(id));
 
-    // Note: These status checks require the corresponding KeepPolicy flags (enabled by default in KeepPolicy.ALL).
-    if (queue.isSuccess(id)) writeln("Job completed successfully");
+    // Or use the single checks.
+    // Note: isSuccess, isFailed and isInterrupted require the corresponding KeepPolicy flags (enabled by default in KeepPolicy.ALL).
+    if (queue.isQueued(id)) writeln("Job is queued");
     if (queue.isFailed(id)) writeln("Job failed");
-    if (queue.isInterrupted(id)) writeln("Job was interrupted");
 }
 ```
 
@@ -139,6 +140,8 @@ queue.requeue(id);   // A single job
 queue.requeueAll();  // All failed and interrupted jobs
 queue.requeueAll(Pacchettino.KeepPolicy.INTERRUPTED); // Only interrupted jobs
 ```
+
+Job ids passed to callbacks can be used too with `status`, `requeue`, `sentAt` and the `is*` methods.
 
 ### Counters
 

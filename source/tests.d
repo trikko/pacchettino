@@ -416,6 +416,61 @@ unittest
 
 unittest
 {
+    // status, sentAt and requeue
+    string baseDir = "/tmp/test-pacchettino-status";
+    if (exists(baseDir)) rmdirRecurse(baseDir);
+
+    auto p = new Pacchettino(baseDir);
+    auto before = Clock.currTime;
+    auto id = p.sendData("fail me");
+    auto after = Clock.currTime;
+
+    assert(p.status(id) == Pacchettino.Status.QUEUED);
+    assert(p.status(UUIDv7!string()) == Pacchettino.Status.UNKNOWN);
+    assert(p.status("") == Pacchettino.Status.UNKNOWN);
+
+    auto sent = Pacchettino.sentAt(id);
+    assert(sent >= before - 1.msecs && sent <= after + 1.msecs);
+
+    string callbackId;
+    Pacchettino.Status inCallback;
+    p.onDataReceived = (i, data) {
+        callbackId = i;
+        inCallback = p.status(i);
+        return Pacchettino.Result.FAILED;
+    };
+
+    assert(p.receiveOne());
+    assert(!p.receiveOne());
+    assert(inCallback == Pacchettino.Status.PROCESSING);
+    assert(p.status(id) == Pacchettino.Status.FAILED);
+
+    // The id passed to callbacks works too
+    assert(p.status(callbackId) == Pacchettino.Status.FAILED);
+    assert(Pacchettino.sentAt(callbackId) == sent);
+
+    assert(p.requeue(callbackId));
+    assert(!p.requeue(callbackId));
+    assert(p.status(id) == Pacchettino.Status.QUEUED);
+
+    p.onDataReceived = (i, data) => Pacchettino.Result.SUCCESS;
+    assert(p.receive() == 1);
+    assert(p.status(id) == Pacchettino.Status.SUCCESS);
+
+    // Status never throws, even when the policy does not keep jobs
+    auto p2 = new Pacchettino(baseDir, Pacchettino.KeepPolicy.NONE);
+    assert(p2.status(id) == Pacchettino.Status.SUCCESS);
+
+    try {
+        Pacchettino.sentAt("not-an-id");
+        assert(false, "Should have thrown Exception");
+    } catch (Exception e) {}
+
+    rmdirRecurse(baseDir);
+}
+
+unittest
+{
     // requeueAll
     string baseDir = "/tmp/test-pacchettino-requeue-all";
     if (exists(baseDir)) rmdirRecurse(baseDir);
