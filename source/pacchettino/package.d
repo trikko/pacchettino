@@ -33,7 +33,7 @@
  *   $(LI `Pacchettino.KeepPolicy` — which processed jobs stay on disk.)
  * )
  *
- * Works on Linux, macOS, BSD and Windows.
+ * Works on POSIX systems (Linux, macOS, BSD).
  *
  * See_Also:
  *   $(LINK2 https://github.com/trikko/pacchettino, the README) for a guided tour,
@@ -751,7 +751,12 @@ class Pacchettino
 
 		foreach (dir; processingDirs)
 		{
-			if (!dir.isDir) continue;
+			// Removed in the meanwhile by the consumer that was processing it
+			bool isDirectory;
+			try isDirectory = dir.isDir;
+			catch (FileException e) continue;
+
+			if (!isDirectory) continue;
 
 			string dirName = dir.baseName;
 			auto lastDot = dirName.lastIndexOf('.');
