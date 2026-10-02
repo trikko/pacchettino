@@ -1,4 +1,4 @@
-# Pacchettino
+# <img align="left" alt="pacchettino logo" width="100" height="100" src="https://github.com/trikko/pacchettino/raw/main/docs/logo.svg"> Pacchettino
 
 [![CI](https://github.com/trikko/pacchettino/actions/workflows/ci.yml/badge.svg)](https://github.com/trikko/pacchettino/actions/workflows/ci.yml)
 [![DUB](https://img.shields.io/dub/v/pacchettino)](https://code.dlang.org/packages/pacchettino)
