@@ -302,3 +302,11 @@ The html reference in `docs/`, served by GitHub Pages, is generated from the
 comments in the source with `tools/docs.sh` (ddox with the scod skin).
 `docs/AGENTS.md`, `docs/llms.txt` and `docs/llms-full.txt` are written by hand;
 `docs/SKILL.md` is generated from `AGENTS.md`.
+
+## Feedback & support
+Using pacchettino? I'd love to hear what you're building with it, or what's missing.
+Write to me: the address is just **oss**, at the domain of [my website](https://andreafontana.it).
+
+pacchettino is built in my spare time. If it's useful to you or your company,
+consider [sponsoring me on GitHub](https://github.com/sponsors/trikko)
+or [buying me a beer on PayPal](https://paypal.me/andreafontana) ❤️
